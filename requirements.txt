@@ -1,0 +1,6 @@
+langchain
+openai
+faiss-cpu
+sentence-transformers
+pdfplumber
+python-dotenv

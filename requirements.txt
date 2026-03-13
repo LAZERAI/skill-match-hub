@@ -7,5 +7,3 @@ torch
 transformers
 numpy
 python-dotenv
-pdfplumber
-python-multipart

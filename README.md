@@ -1,3 +1,14 @@
+---
+title: Skill Match Hub
+emoji: ✓
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+license: mit
+---
+
 # Skill Match Hub
 
 AI-powered job matching platform using **Llama 3.3 70B** and **FAISS** vector search to connect recruiters with top candidates and job seekers with the best opportunities.

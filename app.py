@@ -1,0 +1,379 @@
+"""
+Skill Match Hub — FastAPI Backend
+Consolidates HR + Seeker matching pipelines into a single web-ready API.
+"""
+import os
+import re
+import json
+import time
+import faiss
+import torch
+import numpy as np
+from pathlib import Path
+from groq import Groq
+from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
+from transformers import AutoTokenizer, AutoModel
+from dotenv import load_dotenv
+
+# ── Load .env ─────────────────────────────────────────────────────────────────
+BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")
+
+# ── Config ────────────────────────────────────────────────────────────────────
+DATA_DIR = BASE_DIR / "full_code"
+
+RESUME_FAISS_PATH = str(DATA_DIR / "resume_faiss.index")
+RESUME_META_PATH = str(DATA_DIR / "resume_metadata.json")
+
+JOB_FAISS_PATH = str(DATA_DIR / "rag_vector_index.faiss")
+JOB_META_PATH = str(DATA_DIR / "job_description_chunks_metadata.json")
+
+HF_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+LLM_MODEL = "llama-3.3-70b-versatile"
+TOP_K_RECRUITER = 20
+TOP_K_SEEKER = 5
+MAX_TOKENS = 256
+
+# ── FastAPI app ───────────────────────────────────────────────────────────────
+app = FastAPI(title="Skill Match Hub")
+
+# ── Global state ──────────────────────────────────────────────────────────────
+resume_index = None
+resume_metadata = []
+job_index = None
+job_metadata = []
+tokenizer = None
+embed_model = None
+groq_client = None
+device = "cpu"
+
+
+# ── Request / Response models ─────────────────────────────────────────────────
+class RecruiterRequest(BaseModel):
+    job_description: str
+
+
+class SeekerRequest(BaseModel):
+    resume_text: str
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+def mean_pooling(model_output, attention_mask):
+    token_embeddings = model_output.last_hidden_state
+    mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+    return torch.sum(token_embeddings * mask_expanded, dim=1) / torch.clamp(
+        mask_expanded.sum(dim=1), min=1e-9
+    )
+
+
+def embed_text(text: str) -> np.ndarray:
+    encoded = tokenizer(
+        text, truncation=True, padding=True,
+        max_length=MAX_TOKENS, return_tensors="pt"
+    ).to(device)
+
+    with torch.no_grad():
+        output = embed_model(**encoded)
+        embedding = mean_pooling(output, encoded["attention_mask"])
+
+    vec = embedding.squeeze().cpu().numpy().astype("float32")
+    norm = np.linalg.norm(vec)
+    if norm > 0:
+        vec = vec / norm
+    return vec.reshape(1, -1)
+
+
+def clean_text(text: str) -> str:
+    return " ".join(text.split()).replace("\x00", "").lower()
+
+
+def extract_experience_from_jd(text: str) -> float:
+    match = re.search(r"(\d+(\.\d+)?)\s*\+?\s*years", text, re.IGNORECASE)
+    return float(match.group(1)) if match else 0.0
+
+
+def extract_skills_from_jd(text: str) -> set:
+    stop_words = {
+        "experience", "years", "knowledge", "required", "skills",
+        "ability", "good", "strong", "hands", "working"
+    }
+    words = set(re.findall(r"[a-zA-Z]{3,}", text.lower()))
+    return words - stop_words
+
+
+# ── Recruiter pipeline ────────────────────────────────────────────────────────
+def search_resume_faiss(vector, top_k=TOP_K_RECRUITER):
+    distances, indices = resume_index.search(vector, top_k)
+    candidates = []
+    for idx, dist in zip(indices[0], distances[0]):
+        if idx >= len(resume_metadata):
+            continue
+        entry = resume_metadata[idx]
+        meta = entry.get("metadata", {})
+        candidates.append({
+            "semantic_score": float(dist),
+            "name": meta.get("name", "Unknown"),
+            "email": meta.get("email", "Unknown"),
+            "skills": meta.get("skills", []),
+            "experience_years": meta.get("experience_years", 0.0),
+            "internship_years": meta.get("internship_years", 0.0),
+            "total_experience_years": meta.get("total_experience_years", 0.0),
+            "filename": entry.get("filename", "Unknown"),
+        })
+    return candidates
+
+
+def match_and_rank(candidates, jd_skills, jd_experience):
+    results = []
+    for c in candidates:
+        if jd_experience > 0 and c["experience_years"] < jd_experience:
+            continue
+
+        resume_skills = [s.lower() for s in c["skills"]]
+        matched = [s for s in resume_skills if any(jd in s for jd in jd_skills)]
+
+        if not matched:
+            continue
+
+        skill_score = len(matched) / max(len(resume_skills), 1)
+        final_score = 0.7 * c["semantic_score"] + 0.3 * skill_score
+        c["matched_skills"] = matched
+        c["final_score"] = round(final_score, 4)
+        results.append(c)
+
+    return sorted(results, key=lambda x: x["final_score"], reverse=True)
+
+
+def hr_evaluation(candidate: dict) -> str:
+    prompt = f"""You are an HR evaluator.
+
+Candidate Information (trusted):
+Name: {candidate.get("name")}
+Email: {candidate.get("email")}
+Experience Years: {candidate.get("experience_years")}
+Internship Years: {candidate.get("internship_years")}
+Total Experience: {candidate.get("total_experience_years")}
+Skills: {", ".join(candidate.get("skills", []))}
+Matched Skills: {", ".join(candidate.get("matched_skills", []))}
+
+Evaluate ONLY:
+1. Candidate Summary
+2. Strengths
+3. Skill Gaps
+4. Hiring Recommendation (Hire / Consider / Reject)
+
+Do NOT hallucinate."""
+
+    try:
+        response = groq_client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=[
+                {"role": "system", "content": "You are a strict HR analyst."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            max_tokens=400
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"LLM evaluation unavailable: {str(e)}"
+
+
+# ── Seeker pipeline ───────────────────────────────────────────────────────────
+def search_job_faiss(vector, top_k=TOP_K_SEEKER):
+    scores, indices = job_index.search(vector, top_k)
+    results = []
+    for idx, score in zip(indices[0], scores[0]):
+        if idx >= len(job_metadata):
+            continue
+        entry = job_metadata[idx]
+        results.append({
+            "similarity_score": float(score),
+            "text": entry.get("text", ""),
+            "metadata": entry.get("metadata", {})
+        })
+    return results
+
+
+def seeker_analysis(job_match: dict) -> str:
+    md = job_match.get("metadata", {})
+    company = md.get("company", "Not provided")
+    role = md.get("job_title", "Not provided")
+    location = md.get("location", "Not provided")
+
+    prompt = f"""You are a career advisor.
+
+Company Name: {company}
+Job Role: {role}
+Location: {location}
+
+Job Description (supporting context only):
+{job_match.get("text", "")[:1000]}
+
+Based on the job details above, provide:
+1. A brief role summary
+2. Key requirements
+3. Why this could be a good match
+4. Tips to strengthen application
+
+Be concise and helpful."""
+
+    try:
+        response = groq_client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=[
+                {"role": "system", "content": "You are a helpful career advisor."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            max_tokens=400
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"LLM analysis unavailable: {str(e)}"
+
+
+# ── Startup ───────────────────────────────────────────────────────────────────
+@app.on_event("startup")
+async def startup():
+    global resume_index, resume_metadata, job_index, job_metadata
+    global tokenizer, embed_model, groq_client, device
+
+    # Groq client
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        print("WARNING: GROQ_API_KEY not set. LLM calls will fail.")
+    groq_client = Groq(api_key=api_key or "")
+
+    # Device
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Using device: {device}")
+
+    # Embedding model
+    print("Loading embedding model...")
+    tokenizer = AutoTokenizer.from_pretrained(HF_MODEL_NAME)
+    embed_model = AutoModel.from_pretrained(HF_MODEL_NAME).to(device)
+    embed_model.eval()
+    print("Embedding model ready.")
+
+    # Resume FAISS index (for recruiters)
+    if os.path.exists(RESUME_FAISS_PATH) and os.path.exists(RESUME_META_PATH):
+        print("Loading resume FAISS index...")
+        resume_index = faiss.read_index(RESUME_FAISS_PATH)
+        with open(RESUME_META_PATH, "r", encoding="utf-8") as f:
+            resume_metadata = json.load(f)
+        print(f"Resume index: {resume_index.ntotal} vectors, {len(resume_metadata)} entries")
+    else:
+        print("WARNING: Resume FAISS index not found.")
+
+    # Job FAISS index (for seekers)
+    if os.path.exists(JOB_FAISS_PATH) and os.path.exists(JOB_META_PATH):
+        print("Loading job FAISS index...")
+        job_index = faiss.read_index(JOB_FAISS_PATH)
+        with open(JOB_META_PATH, "r", encoding="utf-8") as f:
+            job_metadata = json.load(f)
+        print(f"Job index: {job_index.ntotal} vectors, {len(job_metadata)} entries")
+    else:
+        print("WARNING: Job FAISS index not found.")
+
+
+# ── API routes ────────────────────────────────────────────────────────────────
+@app.post("/api/recruiter/search")
+async def recruiter_search(req: RecruiterRequest):
+    if resume_index is None:
+        raise HTTPException(status_code=503, detail="Resume index not loaded.")
+
+    jd_text = req.job_description.strip()
+    if not jd_text:
+        raise HTTPException(status_code=400, detail="Job description cannot be empty.")
+    if len(jd_text) > 10000:
+        raise HTTPException(status_code=400, detail="Job description too long (max 10000 chars).")
+
+    t0 = time.time()
+
+    jd_clean = clean_text(jd_text)
+    jd_experience = extract_experience_from_jd(jd_clean)
+    jd_skills = extract_skills_from_jd(jd_clean)
+    jd_vector = embed_text(jd_clean)
+
+    candidates = search_resume_faiss(jd_vector)
+    ranked = match_and_rank(candidates, jd_skills, jd_experience)
+
+    # LLM evaluation for top 6 candidates
+    results = []
+    for cand in ranked[:6]:
+        evaluation = hr_evaluation(cand)
+        cand["llm_evaluation"] = evaluation
+        results.append(cand)
+
+    elapsed = round(time.time() - t0, 2)
+    print(f"[Recruiter] {len(results)} candidates matched in {elapsed}s")
+
+    return {
+        "candidates": results,
+        "total_found": len(ranked),
+        "elapsed_seconds": elapsed
+    }
+
+
+@app.post("/api/seeker/search")
+async def seeker_search(req: SeekerRequest):
+    if job_index is None:
+        raise HTTPException(status_code=503, detail="Job index not loaded.")
+
+    resume_text = req.resume_text.strip()
+    if not resume_text:
+        raise HTTPException(status_code=400, detail="Resume text cannot be empty.")
+    if len(resume_text) > 15000:
+        raise HTTPException(status_code=400, detail="Resume text too long (max 15000 chars).")
+
+    t0 = time.time()
+
+    resume_vector = embed_text(resume_text)
+    matches = search_job_faiss(resume_vector)
+
+    # LLM analysis for top matches
+    results = []
+    for match in matches[:5]:
+        analysis = seeker_analysis(match)
+        md = match.get("metadata", {})
+        results.append({
+            "similarity_score": match["similarity_score"],
+            "job_title": md.get("job_title", "Unknown"),
+            "company": md.get("company", "Unknown"),
+            "location": md.get("location", "Unknown"),
+            "description_preview": match["text"][:300],
+            "llm_analysis": analysis
+        })
+
+    elapsed = round(time.time() - t0, 2)
+    print(f"[Seeker] {len(results)} jobs matched in {elapsed}s")
+
+    return {
+        "jobs": results,
+        "elapsed_seconds": elapsed
+    }
+
+
+@app.get("/api/health")
+async def health():
+    return {
+        "status": "ok",
+        "resume_index_loaded": resume_index is not None,
+        "resume_count": len(resume_metadata),
+        "job_index_loaded": job_index is not None,
+        "job_count": len(job_metadata),
+    }
+
+
+# ── Serve frontend ───────────────────────────────────────────────────────────
+STATIC_DIR = str(BASE_DIR / "static")
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+@app.get("/")
+async def root():
+    return FileResponse(os.path.join(STATIC_DIR, "index.html"))

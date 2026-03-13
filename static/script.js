@@ -557,3 +557,63 @@ function showToast(msg, type = "error") {
   container.appendChild(toast);
   setTimeout(() => toast.remove(), 4000);
 }
+
+function setBuildingOverlay(visible) {
+  const overlay = document.getElementById("buildingOverlay");
+  if (!overlay) return;
+  overlay.hidden = !visible;
+}
+
+async function checkIndexStatus(retry = 3) {
+  setBuildingOverlay(true);
+  try {
+    const res = await fetch("/api/health");
+    const data = await res.json();
+    const ready = data.resume_index_loaded && data.job_index_loaded;
+    setBuildingOverlay(!ready);
+    return ready;
+  } catch (err) {
+    if (retry > 0) {
+      await new Promise((r) => setTimeout(r, 1500));
+      return checkIndexStatus(retry - 1);
+    }
+    setBuildingOverlay(false);
+    return false;
+  }
+}
+
+function exportHiredCandidates() {
+  const hired = recruiterCandidates.filter((c) => c.hired);
+  if (hired.length === 0) {
+    showToast("No hired candidates to export", "error");
+    return;
+  }
+
+  const rows = [
+    ["Name", "Email", "Experience", "Internship", "Total", "Recommendation"],
+  ];
+
+  hired.forEach((c) => {
+    rows.push([
+      c.name || "",
+      c.email || "",
+      c.experience_years || "",
+      c.internship_years || "",
+      c.total_experience_years || "",
+      c.llm_evaluation ? c.llm_evaluation.replace(/\n/g, " ") : "",
+    ]);
+  });
+
+  const csv = rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "hired_candidates.csv";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+
+  showToast("Exported hired candidates to CSV", "success");
+}

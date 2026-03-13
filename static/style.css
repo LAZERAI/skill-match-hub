@@ -527,6 +527,96 @@ html, body {
   box-shadow: 0 4px 16px rgba(5, 118, 66, 0.4);
 }
 
+/* ── Input tabs ─────────────────────────────────────────────────────────── */
+.input-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 20px;
+  background: var(--bg-2);
+  padding: 4px;
+  border-radius: var(--radius-sm);
+}
+.input-tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 9px 16px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-xs);
+  color: var(--text-2);
+  font: 600 13px var(--font);
+  cursor: pointer;
+  transition: all 0.2s var(--ease);
+}
+.input-tab:hover { color: var(--text-0); }
+.input-tab.active {
+  background: var(--card-bg);
+  color: var(--text-0);
+  box-shadow: var(--shadow-sm);
+}
+.input-tab svg { flex-shrink: 0; }
+
+/* Input modes */
+.input-mode { display: none; }
+.input-mode.active { display: block; }
+
+/* ── File drop zone ────────────────────────────────────────────────────── */
+.file-drop-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px 20px;
+  border: 2px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-2);
+  cursor: pointer;
+  transition: all 0.25s var(--ease);
+  min-height: 160px;
+}
+.file-drop-zone:hover,
+.file-drop-zone.drag-over {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.file-drop-zone.has-file {
+  border-color: var(--green);
+  background: var(--green-soft);
+  border-style: solid;
+}
+.drop-icon {
+  font-size: 36px;
+  opacity: 0.7;
+  transition: transform 0.2s var(--ease);
+}
+.file-drop-zone:hover .drop-icon { transform: translateY(-3px); }
+.drop-text {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.drop-sub {
+  font-size: 12px;
+  color: var(--text-3);
+}
+.drop-file-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--green);
+  display: none;
+  padding: 4px 12px;
+  background: var(--green-soft);
+  border-radius: 100px;
+  margin-top: 4px;
+}
+.file-drop-zone.has-file .drop-file-name { display: block; }
+.file-drop-zone.has-file .drop-text { display: none; }
+.file-drop-zone.has-file .drop-sub { display: none; }
+
 /* ═══════════════════════════════════════════════════════════════════════════
    RESULTS
    ═══════════════════════════════════════════════════════════════════════════ */

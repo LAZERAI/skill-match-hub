@@ -9,9 +9,11 @@ import time
 import faiss
 import torch
 import numpy as np
+import pdfplumber
+import io
 from pathlib import Path
 from groq import Groq
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -88,6 +90,37 @@ def embed_text(text: str) -> np.ndarray:
 
 def clean_text(text: str) -> str:
     return " ".join(text.split()).replace("\x00", "").lower()
+
+
+def extract_text_from_pdf(file_bytes: bytes) -> str:
+    """Extract text from PDF file bytes."""
+    text = ""
+    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+        for page in pdf.pages:
+            t = page.extract_text()
+            if t:
+                text += t + "\n"
+    return text.strip()
+
+
+def extract_text_from_txt(file_bytes: bytes) -> str:
+    """Extract text from TXT file bytes."""
+    # Try UTF-8 first, fall back to latin-1
+    try:
+        return file_bytes.decode("utf-8").strip()
+    except UnicodeDecodeError:
+        return file_bytes.decode("latin-1").strip()
+
+
+def extract_text_from_file(file_bytes: bytes, filename: str) -> str:
+    """Extract text from PDF or TXT file."""
+    ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
+    if ext == "pdf":
+        return extract_text_from_pdf(file_bytes)
+    elif ext in ("txt", "text"):
+        return extract_text_from_txt(file_bytes)
+    else:
+        raise ValueError(f"Unsupported file type: .{ext}. Please upload a PDF or TXT file.")
 
 
 def extract_experience_from_jd(text: str) -> float:
@@ -236,6 +269,72 @@ Be concise and helpful."""
         return f"LLM analysis unavailable: {str(e)}"
 
 
+# ── Core search logic (shared by text and file endpoints) ─────────────────────
+def run_recruiter_search(jd_text: str) -> dict:
+    if resume_index is None:
+        raise HTTPException(status_code=503, detail="Resume index not loaded.")
+    if not jd_text:
+        raise HTTPException(status_code=400, detail="Job description cannot be empty.")
+
+    t0 = time.time()
+
+    jd_clean = clean_text(jd_text)
+    jd_experience = extract_experience_from_jd(jd_clean)
+    jd_skills = extract_skills_from_jd(jd_clean)
+    jd_vector = embed_text(jd_clean)
+
+    candidates = search_resume_faiss(jd_vector)
+    ranked = match_and_rank(candidates, jd_skills, jd_experience)
+
+    results = []
+    for cand in ranked[:6]:
+        evaluation = hr_evaluation(cand)
+        cand["llm_evaluation"] = evaluation
+        results.append(cand)
+
+    elapsed = round(time.time() - t0, 2)
+    print(f"[Recruiter] {len(results)} candidates matched in {elapsed}s")
+
+    return {
+        "candidates": results,
+        "total_found": len(ranked),
+        "elapsed_seconds": elapsed
+    }
+
+
+def run_seeker_search(resume_text: str) -> dict:
+    if job_index is None:
+        raise HTTPException(status_code=503, detail="Job index not loaded.")
+    if not resume_text:
+        raise HTTPException(status_code=400, detail="Resume text cannot be empty.")
+
+    t0 = time.time()
+
+    resume_vector = embed_text(resume_text)
+    matches = search_job_faiss(resume_vector)
+
+    results = []
+    for match in matches[:5]:
+        analysis = seeker_analysis(match)
+        md = match.get("metadata", {})
+        results.append({
+            "similarity_score": match["similarity_score"],
+            "job_title": md.get("job_title", "Unknown"),
+            "company": md.get("company", "Unknown"),
+            "location": md.get("location", "Unknown"),
+            "description_preview": match["text"][:300],
+            "llm_analysis": analysis
+        })
+
+    elapsed = round(time.time() - t0, 2)
+    print(f"[Seeker] {len(results)} jobs matched in {elapsed}s")
+
+    return {
+        "jobs": results,
+        "elapsed_seconds": elapsed
+    }
+
+
 # ── Startup ───────────────────────────────────────────────────────────────────
 @app.on_event("startup")
 async def startup():
@@ -280,82 +379,60 @@ async def startup():
         print("WARNING: Job FAISS index not found.")
 
 
-# ── API routes ────────────────────────────────────────────────────────────────
+# ── API routes: TEXT input ────────────────────────────────────────────────────
 @app.post("/api/recruiter/search")
 async def recruiter_search(req: RecruiterRequest):
-    if resume_index is None:
-        raise HTTPException(status_code=503, detail="Resume index not loaded.")
-
-    jd_text = req.job_description.strip()
-    if not jd_text:
-        raise HTTPException(status_code=400, detail="Job description cannot be empty.")
-    if len(jd_text) > 10000:
-        raise HTTPException(status_code=400, detail="Job description too long (max 10000 chars).")
-
-    t0 = time.time()
-
-    jd_clean = clean_text(jd_text)
-    jd_experience = extract_experience_from_jd(jd_clean)
-    jd_skills = extract_skills_from_jd(jd_clean)
-    jd_vector = embed_text(jd_clean)
-
-    candidates = search_resume_faiss(jd_vector)
-    ranked = match_and_rank(candidates, jd_skills, jd_experience)
-
-    # LLM evaluation for top 6 candidates
-    results = []
-    for cand in ranked[:6]:
-        evaluation = hr_evaluation(cand)
-        cand["llm_evaluation"] = evaluation
-        results.append(cand)
-
-    elapsed = round(time.time() - t0, 2)
-    print(f"[Recruiter] {len(results)} candidates matched in {elapsed}s")
-
-    return {
-        "candidates": results,
-        "total_found": len(ranked),
-        "elapsed_seconds": elapsed
-    }
+    return run_recruiter_search(req.job_description.strip())
 
 
 @app.post("/api/seeker/search")
 async def seeker_search(req: SeekerRequest):
-    if job_index is None:
-        raise HTTPException(status_code=503, detail="Job index not loaded.")
+    return run_seeker_search(req.resume_text.strip())
 
-    resume_text = req.resume_text.strip()
-    if not resume_text:
-        raise HTTPException(status_code=400, detail="Resume text cannot be empty.")
-    if len(resume_text) > 15000:
-        raise HTTPException(status_code=400, detail="Resume text too long (max 15000 chars).")
 
-    t0 = time.time()
+# ── API routes: FILE upload (PDF / TXT) ───────────────────────────────────────
+@app.post("/api/recruiter/upload")
+async def recruiter_upload(file: UploadFile = File(...)):
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided.")
 
-    resume_vector = embed_text(resume_text)
-    matches = search_job_faiss(resume_vector)
+    file_bytes = await file.read()
+    if len(file_bytes) > 10 * 1024 * 1024:  # 10MB limit
+        raise HTTPException(status_code=400, detail="File too large (max 10MB).")
 
-    # LLM analysis for top matches
-    results = []
-    for match in matches[:5]:
-        analysis = seeker_analysis(match)
-        md = match.get("metadata", {})
-        results.append({
-            "similarity_score": match["similarity_score"],
-            "job_title": md.get("job_title", "Unknown"),
-            "company": md.get("company", "Unknown"),
-            "location": md.get("location", "Unknown"),
-            "description_preview": match["text"][:300],
-            "llm_analysis": analysis
-        })
+    try:
+        text = extract_text_from_file(file_bytes, file.filename)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Failed to read file. Please check the file format.")
 
-    elapsed = round(time.time() - t0, 2)
-    print(f"[Seeker] {len(results)} jobs matched in {elapsed}s")
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="Could not extract any text from the file.")
 
-    return {
-        "jobs": results,
-        "elapsed_seconds": elapsed
-    }
+    return run_recruiter_search(text)
+
+
+@app.post("/api/seeker/upload")
+async def seeker_upload(file: UploadFile = File(...)):
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided.")
+
+    file_bytes = await file.read()
+    if len(file_bytes) > 10 * 1024 * 1024:  # 10MB limit
+        raise HTTPException(status_code=400, detail="File too large (max 10MB).")
+
+    try:
+        text = extract_text_from_file(file_bytes, file.filename)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Failed to read file. Please check the file format.")
+
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="Could not extract any text from the file.")
+
+    return run_seeker_search(text)
 
 
 @app.get("/api/health")

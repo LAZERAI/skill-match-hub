@@ -16,6 +16,10 @@ const resumeCharCount = document.getElementById("resumeCharCount");
 const recruiterResults = document.getElementById("recruiterResults");
 const seekerResults = document.getElementById("seekerResults");
 
+// File state
+let recruiterFile = null;
+let seekerFile = null;
+
 // ── Character counters ───────────────────────────────────────────────────
 jdInput.addEventListener("input", () => {
   jdCharCount.textContent = jdInput.value.length;
@@ -38,6 +42,85 @@ function selectRole(role) {
 function goHome() {
   switchView("landing");
 }
+
+// ── Input mode tabs ──────────────────────────────────────────────────────
+function switchInputMode(role, mode, tabEl) {
+  // Update tabs
+  const section = tabEl.closest(".input-section");
+  section.querySelectorAll(".input-tab").forEach((t) => t.classList.remove("active"));
+  tabEl.classList.add("active");
+
+  // Update modes
+  section.querySelectorAll(".input-mode").forEach((m) => m.classList.remove("active"));
+  const modeId = `${role}${mode === "text" ? "Text" : "File"}Mode`;
+  document.getElementById(modeId).classList.add("active");
+}
+
+// ── File handling ────────────────────────────────────────────────────────
+function handleFileSelect(role, input) {
+  const file = input.files[0];
+  if (!file) return;
+
+  const ext = file.name.split(".").pop().toLowerCase();
+  if (!["pdf", "txt", "text"].includes(ext)) {
+    showToast("Please select a PDF or TXT file.", "error");
+    input.value = "";
+    return;
+  }
+
+  if (file.size > 10 * 1024 * 1024) {
+    showToast("File too large (max 10MB).", "error");
+    input.value = "";
+    return;
+  }
+
+  if (role === "recruiter") {
+    recruiterFile = file;
+    document.getElementById("recruiterFileName").textContent = `✓ ${file.name} (${formatSize(file.size)})`;
+    document.getElementById("recruiterDropZone").classList.add("has-file");
+    document.getElementById("uploadRecruiterBtn").disabled = false;
+    document.getElementById("recruiterFileInfo").textContent = file.name;
+  } else {
+    seekerFile = file;
+    document.getElementById("seekerFileName").textContent = `✓ ${file.name} (${formatSize(file.size)})`;
+    document.getElementById("seekerDropZone").classList.add("has-file");
+    document.getElementById("uploadSeekerBtn").disabled = false;
+    document.getElementById("seekerFileInfo").textContent = file.name;
+  }
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+// ── Drag and drop ────────────────────────────────────────────────────────
+["recruiterDropZone", "seekerDropZone"].forEach((id) => {
+  const zone = document.getElementById(id);
+  if (!zone) return;
+  const role = id.startsWith("recruiter") ? "recruiter" : "seeker";
+  const inputId = role === "recruiter" ? "recruiterFileInput" : "seekerFileInput";
+
+  zone.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    zone.classList.add("drag-over");
+  });
+  zone.addEventListener("dragleave", () => zone.classList.remove("drag-over"));
+  zone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    zone.classList.remove("drag-over");
+
+    const file = e.dataTransfer.files[0];
+    if (file) {
+      const input = document.getElementById(inputId);
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      input.files = dt.files;
+      handleFileSelect(role, input);
+    }
+  });
+});
 
 // ── Theme toggle ─────────────────────────────────────────────────────────
 function toggleTheme() {
@@ -78,7 +161,7 @@ function updateThemeIcons(theme) {
   }
 })();
 
-// ── Recruiter: Search Candidates ─────────────────────────────────────────
+// ── Recruiter: Search via text ───────────────────────────────────────────
 async function searchCandidates() {
   const text = jdInput.value.trim();
   if (!text) {
@@ -88,14 +171,7 @@ async function searchCandidates() {
 
   const btn = document.getElementById("searchCandidatesBtn");
   btn.disabled = true;
-
-  recruiterResults.innerHTML = `
-    <div class="loading-indicator">
-      <div class="loading-spinner"></div>
-      <div class="loading-text">Searching talent pool...</div>
-      <div class="loading-sub">Embedding JD → FAISS search → LLM evaluation</div>
-    </div>
-  `;
+  showRecruiterLoading();
 
   try {
     const res = await fetch("/api/recruiter/search", {
@@ -112,12 +188,54 @@ async function searchCandidates() {
     const data = await res.json();
     renderCandidates(data);
   } catch (err) {
-    recruiterResults.innerHTML = `
-      <div class="error-state">⚠ ${escapeHtml(err.message)}</div>
-    `;
+    recruiterResults.innerHTML = `<div class="error-state">⚠ ${escapeHtml(err.message)}</div>`;
   } finally {
     btn.disabled = false;
   }
+}
+
+// ── Recruiter: Search via file upload ────────────────────────────────────
+async function uploadRecruiterFile() {
+  if (!recruiterFile) {
+    showToast("Please select a file first.", "error");
+    return;
+  }
+
+  const btn = document.getElementById("uploadRecruiterBtn");
+  btn.disabled = true;
+  showRecruiterLoading();
+
+  try {
+    const formData = new FormData();
+    formData.append("file", recruiterFile);
+
+    const res = await fetch("/api/recruiter/upload", {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `Server error ${res.status}`);
+    }
+
+    const data = await res.json();
+    renderCandidates(data);
+  } catch (err) {
+    recruiterResults.innerHTML = `<div class="error-state">⚠ ${escapeHtml(err.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function showRecruiterLoading() {
+  recruiterResults.innerHTML = `
+    <div class="loading-indicator">
+      <div class="loading-spinner"></div>
+      <div class="loading-text">Searching talent pool...</div>
+      <div class="loading-sub">Embedding JD → FAISS search → LLM evaluation</div>
+    </div>
+  `;
 }
 
 function renderCandidates(data) {
@@ -142,11 +260,7 @@ function renderCandidates(data) {
   data.candidates.forEach((cand, i) => {
     const rank = i + 1;
     const rankClass = rank <= 3 ? `rank-${rank}` : "rank-default";
-
-    // Parse recommendation from LLM eval
     const rec = parseRecommendation(cand.llm_evaluation || "");
-
-    // Split skills: matched vs all
     const matchedSkills = cand.matched_skills || [];
     const allSkills = cand.skills || [];
 
@@ -163,7 +277,6 @@ function renderCandidates(data) {
             <span class="card-score">${(cand.final_score || 0).toFixed(2)}</span>
           </div>
         </div>
-
         <div class="card-stats">
           <div class="stat-item">
             <div class="stat-label">Experience</div>
@@ -178,18 +291,10 @@ function renderCandidates(data) {
             <div class="stat-value">${cand.total_experience_years || 0}y</div>
           </div>
         </div>
-
         <div class="card-skills">
-          ${matchedSkills
-            .map((s) => `<span class="skill-tag matched">✓ ${escapeHtml(s)}</span>`)
-            .join("")}
-          ${allSkills
-            .filter((s) => !matchedSkills.includes(s.toLowerCase()))
-            .slice(0, 8)
-            .map((s) => `<span class="skill-tag">${escapeHtml(s)}</span>`)
-            .join("")}
+          ${matchedSkills.map((s) => `<span class="skill-tag matched">✓ ${escapeHtml(s)}</span>`).join("")}
+          ${allSkills.filter((s) => !matchedSkills.includes(s.toLowerCase())).slice(0, 8).map((s) => `<span class="skill-tag">${escapeHtml(s)}</span>`).join("")}
         </div>
-
         <div class="card-eval">
           <div class="eval-title">🤖 AI Evaluation</div>
           <div class="eval-content">${formatLLMText(cand.llm_evaluation || "No evaluation available.")}</div>
@@ -201,7 +306,7 @@ function renderCandidates(data) {
   recruiterResults.innerHTML = html;
 }
 
-// ── Seeker: Search Jobs ──────────────────────────────────────────────────
+// ── Seeker: Search via text ──────────────────────────────────────────────
 async function searchJobs() {
   const text = resumeInput.value.trim();
   if (!text) {
@@ -211,14 +316,7 @@ async function searchJobs() {
 
   const btn = document.getElementById("searchJobsBtn");
   btn.disabled = true;
-
-  seekerResults.innerHTML = `
-    <div class="loading-indicator">
-      <div class="loading-spinner"></div>
-      <div class="loading-text">Finding matching jobs...</div>
-      <div class="loading-sub">Embedding resume → FAISS search → Career analysis</div>
-    </div>
-  `;
+  showSeekerLoading();
 
   try {
     const res = await fetch("/api/seeker/search", {
@@ -235,12 +333,54 @@ async function searchJobs() {
     const data = await res.json();
     renderJobs(data);
   } catch (err) {
-    seekerResults.innerHTML = `
-      <div class="error-state">⚠ ${escapeHtml(err.message)}</div>
-    `;
+    seekerResults.innerHTML = `<div class="error-state">⚠ ${escapeHtml(err.message)}</div>`;
   } finally {
     btn.disabled = false;
   }
+}
+
+// ── Seeker: Search via file upload ───────────────────────────────────────
+async function uploadSeekerFile() {
+  if (!seekerFile) {
+    showToast("Please select a file first.", "error");
+    return;
+  }
+
+  const btn = document.getElementById("uploadSeekerBtn");
+  btn.disabled = true;
+  showSeekerLoading();
+
+  try {
+    const formData = new FormData();
+    formData.append("file", seekerFile);
+
+    const res = await fetch("/api/seeker/upload", {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `Server error ${res.status}`);
+    }
+
+    const data = await res.json();
+    renderJobs(data);
+  } catch (err) {
+    seekerResults.innerHTML = `<div class="error-state">⚠ ${escapeHtml(err.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function showSeekerLoading() {
+  seekerResults.innerHTML = `
+    <div class="loading-indicator">
+      <div class="loading-spinner"></div>
+      <div class="loading-text">Finding matching jobs...</div>
+      <div class="loading-sub">Embedding resume → FAISS search → Career analysis</div>
+    </div>
+  `;
 }
 
 function renderJobs(data) {
@@ -273,9 +413,7 @@ function renderJobs(data) {
           </div>
           <span class="job-score">${(job.similarity_score || 0).toFixed(2)} match</span>
         </div>
-
         <div class="job-preview">${escapeHtml(job.description_preview)}...</div>
-
         <div class="job-analysis">
           <div class="analysis-title">🤖 Career Analysis</div>
           <div class="analysis-content">${formatLLMText(job.llm_analysis || "No analysis available.")}</div>
@@ -295,18 +433,10 @@ function escapeHtml(text) {
 }
 
 function formatLLMText(text) {
-  // Basic markdown→HTML: bold, numbered lists, headers
   let html = escapeHtml(text);
-
-  // Bold: **text**
   html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-
-  // Numbered lists: 1. text
   html = html.replace(/^(\d+)\.\s+(.+)$/gm, "<strong>$1.</strong> $2");
-
-  // Bullet points
   html = html.replace(/^[-•]\s+(.+)$/gm, "• $1");
-
   return html;
 }
 

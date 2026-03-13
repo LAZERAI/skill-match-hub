@@ -1,6 +1,6 @@
 ---
 title: Skill Match Hub
-emoji: ✓
+emoji: 💼
 colorFrom: blue
 colorTo: indigo
 sdk: docker

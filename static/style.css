@@ -486,6 +486,32 @@ html, body {
   align-items: center;
   justify-content: space-between;
   margin-top: 14px;
+  gap: 10px;
+}
+
+.button-group {
+  display: flex;
+  gap: 10px;
+}
+
+.secondary-btn {
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-1);
+  font: 700 13px var(--font);
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.secondary-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  transform: translateY(-1px);
+}
+
+.secondary-btn:active {
+  transform: translateY(0);
 }
 .char-count {
   font-size: 12px;

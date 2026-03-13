@@ -24,6 +24,24 @@ let seekerFile = null;
 let recruiterCandidates = [];
 let recruiterFilter = "all"; // all | open | hired
 
+const HIRE_STORAGE_KEY = "smh_hired_candidates";
+
+function loadHiredCandidates() {
+  try {
+    const raw = localStorage.getItem(HIRE_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveHiredCandidates() {
+  const hired = recruiterCandidates
+    .filter((c) => c.hired)
+    .map((c) => c.email || c._internalId);
+  localStorage.setItem(HIRE_STORAGE_KEY, JSON.stringify(hired));
+}
+
 // ── Character counters ───────────────────────────────────────────────────
 jdInput.addEventListener("input", () => {
   jdCharCount.textContent = jdInput.value.length;
@@ -253,6 +271,8 @@ function toggleHired(index) {
   const candidate = recruiterCandidates[index];
   if (!candidate) return;
   candidate.hired = !candidate.hired;
+  saveHiredCandidates();
+  showToast(candidate.hired ? "Marked as hired" : "Marked as open", "success");
   renderCandidateList();
 }
 
@@ -347,50 +367,15 @@ function renderCandidates(data) {
     hired: false,
     _internalId: idx,
   }));
-  recruiterFilter = 'all';
-  renderCandidateList();
-}
 
-    html += `
-      <div class="candidate-card" style="animation-delay: ${i * 0.08}s">
-        <div class="card-header">
-          <div class="card-rank ${rankClass}">#${rank}</div>
-          <div class="card-info">
-            <div class="card-name">${escapeHtml(cand.name)}</div>
-            <div class="card-email">${escapeHtml(cand.email)}</div>
-          </div>
-          <div style="display:flex;gap:8px;align-items:center;">
-            ${rec.badge}
-            <span class="card-score">${(cand.final_score || 0).toFixed(2)}</span>
-          </div>
-        </div>
-        <div class="card-stats">
-          <div class="stat-item">
-            <div class="stat-label">Experience</div>
-            <div class="stat-value">${cand.experience_years || 0}y</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-label">Internship</div>
-            <div class="stat-value">${cand.internship_years || 0}y</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-label">Total</div>
-            <div class="stat-value">${cand.total_experience_years || 0}y</div>
-          </div>
-        </div>
-        <div class="card-skills">
-          ${matchedSkills.map((s) => `<span class="skill-tag matched">✓ ${escapeHtml(s)}</span>`).join("")}
-          ${allSkills.filter((s) => !matchedSkills.includes(s.toLowerCase())).slice(0, 8).map((s) => `<span class="skill-tag">${escapeHtml(s)}</span>`).join("")}
-        </div>
-        <div class="card-eval">
-          <div class="eval-title">🤖 AI Evaluation</div>
-          <div class="eval-content">${formatLLMText(cand.llm_evaluation || "No evaluation available.")}</div>
-        </div>
-      </div>
-    `;
+  const stored = loadHiredCandidates();
+  recruiterCandidates.forEach((c) => {
+    const key = c.email || c._internalId;
+    c.hired = stored.includes(key);
   });
 
-  recruiterResults.innerHTML = html;
+  recruiterFilter = 'all';
+  renderCandidateList();
 }
 
 // ── Seeker: Search via text ──────────────────────────────────────────────

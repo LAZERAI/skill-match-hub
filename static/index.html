@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Skill Match Hub — AI-Powered Job Matching Platform connecting recruiters with top candidates and job seekers with perfect opportunities.">
+  <title>Skill Match Hub — AI Job Matching</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+  <!-- ═══════════ LANDING / ROLE SELECT ═══════════ -->
+  <div id="landingView" class="view active">
+    <div class="landing-container">
+      <!-- Theme Toggle (floating) -->
+      <button class="theme-fab" onclick="toggleTheme()" id="themeFab" title="Toggle theme">
+        <span id="fabIcon">🌙</span>
+      </button>
+
+      <!-- Hero Area -->
+      <div class="landing-hero">
+        <div class="landing-logo">
+          <div class="logo-mark">
+            <svg width="42" height="42" viewBox="0 0 42 42" fill="none">
+              <rect width="42" height="42" rx="12" fill="url(#logoGrad)"/>
+              <path d="M12 21L18 27L30 15" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+              <defs><linearGradient id="logoGrad" x1="0" y1="0" x2="42" y2="42"><stop stop-color="#0A66C2"/><stop offset="1" stop-color="#004182"/></linearGradient></defs>
+            </svg>
+          </div>
+          <div>
+            <h1 class="logo-title">Skill Match Hub</h1>
+            <p class="logo-sub">AI-Powered Job Matching Platform</p>
+          </div>
+        </div>
+
+        <p class="landing-desc">
+          Powered by <strong>Llama 3.3</strong> and semantic vector search, 
+          we intelligently connect the right talent with the right opportunities.
+        </p>
+
+        <div class="role-cards">
+          <button class="role-card" onclick="selectRole('recruiter')" id="recruiterCard">
+            <div class="role-icon">
+              <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                <circle cx="24" cy="16" r="8" stroke="currentColor" stroke-width="2.5"/>
+                <path d="M8 40C8 32.268 14.268 26 22 26H26C33.732 26 40 32.268 40 40" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+                <circle cx="36" cy="16" r="4" stroke="currentColor" stroke-width="2"/>
+                <path d="M38 22C41.314 22 44 24.686 44 28" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <h2 class="role-title">I'm a Recruiter</h2>
+            <p class="role-desc">Paste a job description and discover the best-matching candidates from our talent pool, ranked by AI.</p>
+            <span class="role-cta">Find Candidates →</span>
+          </button>
+
+          <button class="role-card" onclick="selectRole('seeker')" id="seekerCard">
+            <div class="role-icon">
+              <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                <rect x="10" y="6" width="28" height="36" rx="3" stroke="currentColor" stroke-width="2.5"/>
+                <line x1="16" y1="14" x2="32" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                <line x1="16" y1="20" x2="28" y2="20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                <line x1="16" y1="26" x2="30" y2="26" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                <line x1="16" y1="32" x2="24" y2="32" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                <circle cx="35" cy="35" r="7" stroke="currentColor" stroke-width="2.5"/>
+                <line x1="40" y1="40" x2="44" y2="44" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <h2 class="role-title">I'm a Job Seeker</h2>
+            <p class="role-desc">Paste your resume and find the most relevant job openings matched to your skills and experience.</p>
+            <span class="role-cta">Find Jobs →</span>
+          </button>
+        </div>
+
+        <div class="landing-stats">
+          <div class="stat-chip"><span class="stat-num" id="statResumes">—</span> Resumes Indexed</div>
+          <div class="stat-chip"><span class="stat-num" id="statJobs">—</span> Job Listings</div>
+          <div class="stat-chip"><span class="stat-num">Llama 3.3</span> LLM</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════ RECRUITER DASHBOARD ═══════════ -->
+  <div id="recruiterView" class="view">
+    <div class="dashboard">
+      <!-- Topbar -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="back-btn" onclick="goHome()" title="Back to Home">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M12 4L6 10L12 16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="topbar-brand">
+            <h1>Skill Match Hub</h1>
+            <span class="topbar-badge recruiter-badge">Recruiter</span>
+          </div>
+        </div>
+        <div class="topbar-right">
+          <button class="icon-btn" onclick="toggleTheme()" title="Toggle theme">
+            <span id="topThemeIcon1">🌙</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Content -->
+      <main class="dashboard-content">
+        <div class="input-section">
+          <h2 class="section-title">
+            <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><rect x="2" y="2" width="18" height="18" rx="3" stroke="currentColor" stroke-width="1.8"/><line x1="6" y1="7" x2="16" y2="7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="6" y1="11" x2="14" y2="11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="6" y1="15" x2="12" y2="15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            Paste Job Description
+          </h2>
+          <textarea id="jdInput" class="text-input" rows="8" placeholder="Paste the complete job description here... Include required skills, experience level, responsibilities, and qualifications for best results."></textarea>
+          <div class="input-actions">
+            <span class="char-count"><span id="jdCharCount">0</span> characters</span>
+            <button class="primary-btn" onclick="searchCandidates()" id="searchCandidatesBtn">
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="2"/><line x1="12" y1="12" x2="16" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+              Find Candidates
+            </button>
+          </div>
+        </div>
+
+        <!-- Results -->
+        <div id="recruiterResults" class="results-area"></div>
+      </main>
+    </div>
+  </div>
+
+  <!-- ═══════════ SEEKER DASHBOARD ═══════════ -->
+  <div id="seekerView" class="view">
+    <div class="dashboard">
+      <!-- Topbar -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="back-btn" onclick="goHome()" title="Back to Home">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M12 4L6 10L12 16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="topbar-brand">
+            <h1>Skill Match Hub</h1>
+            <span class="topbar-badge seeker-badge">Job Seeker</span>
+          </div>
+        </div>
+        <div class="topbar-right">
+          <button class="icon-btn" onclick="toggleTheme()" title="Toggle theme">
+            <span id="topThemeIcon2">🌙</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Content -->
+      <main class="dashboard-content">
+        <div class="input-section">
+          <h2 class="section-title">
+            <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><rect x="3" y="1" width="16" height="20" rx="2" stroke="currentColor" stroke-width="1.8"/><line x1="7" y1="6" x2="15" y2="6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="7" y1="10" x2="13" y2="10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="7" y1="14" x2="14" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            Paste Your Resume
+          </h2>
+          <textarea id="resumeInput" class="text-input" rows="8" placeholder="Paste your resume text here... Include your skills, work experience, education, and any relevant projects for the best job matches."></textarea>
+          <div class="input-actions">
+            <span class="char-count"><span id="resumeCharCount">0</span> characters</span>
+            <button class="primary-btn seeker-btn" onclick="searchJobs()" id="searchJobsBtn">
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="2"/><line x1="12" y1="12" x2="16" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+              Find Jobs
+            </button>
+          </div>
+        </div>
+
+        <!-- Results -->
+        <div id="seekerResults" class="results-area"></div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Toast container -->
+  <div id="toastContainer"></div>
+
+  <script src="/static/script.js"></script>
+</body>
+</html>

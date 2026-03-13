@@ -526,6 +526,29 @@ function parseRecommendation(evalText) {
   return { badge: "" };
 }
 
+async function rebuildIndexes() {
+  const btn = document.getElementById("rebuildIcon");
+  btn.textContent = "⏳";
+  btn.disabled = true;
+
+  try {
+    const res = await fetch("/api/rebuild-index", { method: "POST" });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `Server error ${res.status}`);
+    }
+
+    const data = await res.json();
+    showToast(data.message || "Indexes rebuilt", "success");
+    loadStats();
+  } catch (err) {
+    showToast(err.message || "Failed to rebuild indexes", "error");
+  } finally {
+    btn.textContent = "🔁";
+    btn.disabled = false;
+  }
+}
+
 function showToast(msg, type = "error") {
   const container = document.getElementById("toastContainer");
   const toast = document.createElement("div");

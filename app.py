@@ -366,7 +366,31 @@ async def startup():
             resume_metadata = json.load(f)
         print(f"Resume index: {resume_index.ntotal} vectors, {len(resume_metadata)} entries")
     else:
-        print("WARNING: Resume FAISS index not found.")
+        # Build resume index from metadata JSON (if available)
+        if os.path.exists(RESUME_META_PATH):
+            print("Building resume FAISS index from metadata JSON...")
+            with open(RESUME_META_PATH, "r", encoding="utf-8") as f:
+                resume_metadata = json.load(f)
+
+            vectors = []
+            for entry in resume_metadata:
+                text = entry.get("text", "")
+                if not text:
+                    continue
+                vectors.append(embed_text(text).squeeze().astype("float32"))
+
+            if vectors:
+                arr = np.vstack(vectors)
+                faiss.normalize_L2(arr)
+                idx = faiss.IndexFlatIP(arr.shape[1])
+                idx.add(arr)
+                resume_index = idx
+                faiss.write_index(resume_index, RESUME_FAISS_PATH)
+                print(f"Built resume index: {resume_index.ntotal} vectors")
+            else:
+                print("WARNING: Resume metadata contains no text to vectorize.")
+        else:
+            print("WARNING: Resume metadata JSON not found. Recruiter search unavailable.")
 
     # Job FAISS index (for seekers)
     if os.path.exists(JOB_FAISS_PATH) and os.path.exists(JOB_META_PATH):
@@ -376,7 +400,35 @@ async def startup():
             job_metadata = json.load(f)
         print(f"Job index: {job_index.ntotal} vectors, {len(job_metadata)} entries")
     else:
-        print("WARNING: Job FAISS index not found.")
+        # Build job index from job description chunks JSON
+        chunks_path = DATA_DIR / "job_description_chunks.json"
+        if os.path.exists(chunks_path) and os.path.exists(JOB_META_PATH):
+            print("Building job FAISS index from job description chunks...")
+            with open(chunks_path, "r", encoding="utf-8") as f:
+                chunks = json.load(f)
+
+            vectors = []
+            for chunk in chunks:
+                text = chunk.get("text", "")
+                if not text:
+                    continue
+                vectors.append(embed_text(text).squeeze().astype("float32"))
+
+            if vectors:
+                arr = np.vstack(vectors)
+                faiss.normalize_L2(arr)
+                idx = faiss.IndexFlatIP(arr.shape[1])
+                idx.add(arr)
+                job_index = idx
+                faiss.write_index(job_index, JOB_FAISS_PATH)
+                with open(JOB_META_PATH, "w", encoding="utf-8") as f:
+                    json.dump(chunks, f, indent=2, ensure_ascii=False)
+                job_metadata = chunks
+                print(f"Built job index: {job_index.ntotal} vectors")
+            else:
+                print("WARNING: Job chunks JSON contains no text to vectorize.")
+        else:
+            print("WARNING: Job chunks JSON or metadata not found. Job seeker search unavailable.")
 
 
 # ── API routes: TEXT input ────────────────────────────────────────────────────

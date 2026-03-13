@@ -20,6 +20,10 @@ const seekerResults = document.getElementById("seekerResults");
 let recruiterFile = null;
 let seekerFile = null;
 
+// Recruiter candidate state
+let recruiterCandidates = [];
+let recruiterFilter = "all"; // all | open | hired
+
 // ── Character counters ───────────────────────────────────────────────────
 jdInput.addEventListener("input", () => {
   jdCharCount.textContent = jdInput.value.length;
@@ -154,8 +158,10 @@ function updateThemeIcons(theme) {
   try {
     const res = await fetch("/api/health");
     const data = await res.json();
-    document.getElementById("statResumes").textContent = data.resume_count || "—";
-    document.getElementById("statJobs").textContent = data.job_count || "—";
+
+    // If indexes are still building or not loaded, show a friendly message
+    document.getElementById("statResumes").textContent = data.resume_index_loaded ? data.resume_count : "building…";
+    document.getElementById("statJobs").textContent = data.job_index_loaded ? data.job_count : "building…";
   } catch {
     // silently fail for stats
   }
@@ -238,8 +244,26 @@ function showRecruiterLoading() {
   `;
 }
 
-function renderCandidates(data) {
-  if (!data.candidates || data.candidates.length === 0) {
+function setRecruiterFilter(filter) {
+  recruiterFilter = filter;
+  renderCandidateList();
+}
+
+function toggleHired(index) {
+  const candidate = recruiterCandidates[index];
+  if (!candidate) return;
+  candidate.hired = !candidate.hired;
+  renderCandidateList();
+}
+
+function renderCandidateList() {
+  const filtered = recruiterCandidates.filter((c) => {
+    if (recruiterFilter === "hired") return c.hired;
+    if (recruiterFilter === "open") return !c.hired;
+    return true;
+  });
+
+  if (filtered.length === 0) {
     recruiterResults.innerHTML = `
       <div class="empty-state">
         <div class="empty-icon">🔍</div>
@@ -252,17 +276,80 @@ function renderCandidates(data) {
 
   let html = `
     <div class="results-header">
-      <h3>Top Candidates</h3>
-      <span class="results-meta">${data.total_found} total matches · ${data.elapsed_seconds}s</span>
+      <div class="results-meta-group">
+        <h3>Top Candidates</h3>
+        <span class="results-meta">${filtered.length} shown • ${recruiterCandidates.length} total</span>
+      </div>
+      <div class="filter-tabs">
+        <button class="filter-tab ${recruiterFilter === 'all' ? 'active' : ''}" onclick="setRecruiterFilter('all')">All</button>
+        <button class="filter-tab ${recruiterFilter === 'open' ? 'active' : ''}" onclick="setRecruiterFilter('open')">Open</button>
+        <button class="filter-tab ${recruiterFilter === 'hired' ? 'active' : ''}" onclick="setRecruiterFilter('hired')">Hired</button>
+      </div>
     </div>
   `;
 
-  data.candidates.forEach((cand, i) => {
+  filtered.forEach((cand, i) => {
     const rank = i + 1;
     const rankClass = rank <= 3 ? `rank-${rank}` : "rank-default";
     const rec = parseRecommendation(cand.llm_evaluation || "");
     const matchedSkills = cand.matched_skills || [];
     const allSkills = cand.skills || [];
+
+    html += `
+      <div class="candidate-card" style="animation-delay: ${i * 0.08}s">
+        <div class="card-header">
+          <div class="card-rank ${rankClass}">#${rank}</div>
+          <div class="card-info">
+            <div class="card-name">${escapeHtml(cand.name)}</div>
+            <div class="card-email">${escapeHtml(cand.email)}</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            ${cand.hired ? '<span class="hired-badge">HIRED</span>' : ''}
+            ${rec.badge}
+            <span class="card-score">${(cand.final_score || 0).toFixed(2)}</span>
+          </div>
+        </div>
+        <div class="card-stats">
+          <div class="stat-item">
+            <div class="stat-label">Experience</div>
+            <div class="stat-value">${cand.experience_years || 0}y</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Internship</div>
+            <div class="stat-value">${cand.internship_years || 0}y</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Total</div>
+            <div class="stat-value">${cand.total_experience_years || 0}y</div>
+          </div>
+        </div>
+        <div class="card-skills">
+          ${matchedSkills.map((s) => `<span class="skill-tag matched">✓ ${escapeHtml(s)}</span>`).join("")}
+          ${allSkills.filter((s) => !matchedSkills.includes(s.toLowerCase())).slice(0, 8).map((s) => `<span class="skill-tag">${escapeHtml(s)}</span>`).join("")}
+        </div>
+        <div class="card-eval">
+          <div class="eval-title">🤖 AI Evaluation</div>
+          <div class="eval-content">${formatLLMText(cand.llm_evaluation || "No evaluation available.")}</div>
+        </div>
+        <div class="card-actions">
+          <button class="outline-btn" onclick="toggleHired(${cand._internalId})">${cand.hired ? 'Mark as Open' : 'Mark as Hired'}</button>
+        </div>
+      </div>
+    `;
+  });
+
+  recruiterResults.innerHTML = html;
+}
+
+function renderCandidates(data) {
+  recruiterCandidates = (data.candidates || []).map((cand, idx) => ({
+    ...cand,
+    hired: false,
+    _internalId: idx,
+  }));
+  recruiterFilter = 'all';
+  renderCandidateList();
+}
 
     html += `
       <div class="candidate-card" style="animation-delay: ${i * 0.08}s">

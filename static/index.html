@@ -124,10 +124,15 @@
             <textarea id="jdInput" class="text-input" rows="8" placeholder="Paste the complete job description here... Include required skills, experience level, responsibilities, and qualifications for best results."></textarea>
             <div class="input-actions">
               <span class="char-count"><span id="jdCharCount">0</span> characters</span>
-              <button class="primary-btn" onclick="searchCandidates()" id="searchCandidatesBtn">
-                <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="2"/><line x1="12" y1="12" x2="16" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-                Find Candidates
-              </button>
+              <div class="button-group">
+                <button class="secondary-btn" onclick="clearRecruiterInput()" id="clearRecruiterBtn">
+                  Clear
+                </button>
+                <button class="primary-btn" onclick="searchCandidates()" id="searchCandidatesBtn">
+                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="2"/><line x1="12" y1="12" x2="16" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                  Find Candidates
+                </button>
+              </div>
             </div>
           </div>
 
@@ -202,10 +207,15 @@
             <textarea id="resumeInput" class="text-input" rows="8" placeholder="Paste your resume text here... Include your skills, work experience, education, and any relevant projects for the best job matches."></textarea>
             <div class="input-actions">
               <span class="char-count"><span id="resumeCharCount">0</span> characters</span>
-              <button class="primary-btn seeker-btn" onclick="searchJobs()" id="searchJobsBtn">
-                <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="2"/><line x1="12" y1="12" x2="16" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-                Find Jobs
-              </button>
+              <div class="button-group">
+                <button class="secondary-btn" onclick="clearSeekerInput()" id="clearSeekerBtn">
+                  Clear
+                </button>
+                <button class="primary-btn seeker-btn" onclick="searchJobs()" id="searchJobsBtn">
+                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="2"/><line x1="12" y1="12" x2="16" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                  Find Jobs
+                </button>
+              </div>
             </div>
           </div>
 

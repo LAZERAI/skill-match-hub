@@ -600,12 +600,6 @@ function showToast(msg, type = "error") {
   setTimeout(() => toast.remove(), 4000);
 }
 
-function setBuildingOverlay(visible) {
-  const overlay = document.getElementById("buildingOverlay");
-  if (!overlay) return;
-  overlay.hidden = !visible;
-}
-
 function setSearchEnabled(role, enabled) {
   if (role === "recruiter") {
     const searchBtn = document.getElementById("searchCandidatesBtn");
@@ -657,10 +651,6 @@ function updateIndexStatusUI(data) {
   setSearchEnabled("recruiter", recruiterReady);
   setSearchEnabled("seeker", seekerReady);
 
-  const needsOverlay =
-    (currentRole === "recruiter" && !recruiterReady) ||
-    (currentRole === "seeker" && !seekerReady);
-  setBuildingOverlay(needsOverlay);
 }
 
 async function checkIndexStatus(pollSeconds = 3, maxAttempts = 20) {
@@ -683,7 +673,6 @@ async function checkIndexStatus(pollSeconds = 3, maxAttempts = 20) {
   }
 
   // If we never became ready, keep the UI usable.
-  setBuildingOverlay(false);
   return false;
 }
 

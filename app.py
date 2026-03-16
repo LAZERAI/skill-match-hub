@@ -36,9 +36,10 @@ PERSISTENT_DIR.mkdir(parents=True, exist_ok=True)
 RESUME_META_PATH = REPO_DATA_DIR / "resume_metadata.json"
 JOB_CHUNKS_PATH = REPO_DATA_DIR / "job_description_chunks.json"
 
-RESUME_FAISS_PATH = PERSISTENT_DIR / "resume_faiss.index"
-JOB_FAISS_PATH = PERSISTENT_DIR / "rag_vector_index.faiss"
-JOB_META_PATH = PERSISTENT_DIR / "job_description_chunks_metadata.json"
+# Faiss indexes must be saved/loaded using file paths (str) for the faiss write_index/read_index bindings.
+RESUME_FAISS_PATH = str(PERSISTENT_DIR / "resume_faiss.index")
+JOB_FAISS_PATH = str(PERSISTENT_DIR / "rag_vector_index.faiss")
+JOB_META_PATH = str(PERSISTENT_DIR / "job_description_chunks_metadata.json")
 
 # Embedding / LLM config
 HF_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"

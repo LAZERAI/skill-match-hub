@@ -103,10 +103,14 @@ Open [http://localhost:8000](http://localhost:8000)
 
 ---
 
-## Credits
+## Contributors
 
-- **Backend & AI Pipeline**: [Rijin Shaji](https://github.com/Rijin-shaji)
-- **Frontend & Integration**: [LAZERAI](https://github.com/LAZERAI)
+This project is built collaboratively. Special thanks to:
+
+- **Rijin Shaji** — core backend pipeline, data processing, and architecture (original project author)
+- **LAZERAI** — frontend UI, integration, and deployment
+
+For full contributor details, see [CONTRIBUTORS.md](CONTRIBUTORS.md).
 
 ## License
 

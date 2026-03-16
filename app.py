@@ -7,7 +7,6 @@ import re
 import json
 import time
 import asyncio
-import faiss
 import torch
 import numpy as np
 import pdfplumber
@@ -28,18 +27,8 @@ load_dotenv(BASE_DIR / ".env")
 # ── Config ────────────────────────────────────────────────────────────────────
 # Source data (kept in the repository)
 REPO_DATA_DIR = BASE_DIR / "full_code"
-
-# Persistent storage (Hugging Face Spaces uses /mnt/data for persistent storage)
-PERSISTENT_DIR = Path(os.getenv("PERSISTENT_DIR", "/mnt/data/skill-match-hub"))
-PERSISTENT_DIR.mkdir(parents=True, exist_ok=True)
-
 RESUME_META_PATH = REPO_DATA_DIR / "resume_metadata.json"
 JOB_CHUNKS_PATH = REPO_DATA_DIR / "job_description_chunks.json"
-
-# Faiss indexes must be saved/loaded using file paths (str) for the faiss write_index/read_index bindings.
-RESUME_FAISS_PATH = str(PERSISTENT_DIR / "resume_faiss.index")
-JOB_FAISS_PATH = str(PERSISTENT_DIR / "rag_vector_index.faiss")
-JOB_META_PATH = str(PERSISTENT_DIR / "job_description_chunks_metadata.json")
 
 # Embedding / LLM config
 HF_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
@@ -52,19 +41,22 @@ MAX_TOKENS = 256
 app = FastAPI(title="Skill Match Hub")
 
 # ── Global state ──────────────────────────────────────────────────────────────
-resume_index = None
+# Loaded data
 resume_metadata = []
-job_index = None
 job_metadata = []
+
+# Precomputed embeddings (computed once, then reused for searches)
+resume_embeddings = None
+job_embeddings = None
+
+# Model / clients
 tokenizer = None
 embed_model = None
 groq_client = None
 device = "cpu"
 
-# Building state (used for progress / UX feedback)
-building_resume_index = False
-building_job_index = False
-building_indexes = False
+# Load state
+data_loaded = False
 
 
 # ── Request / Response models ─────────────────────────────────────────────────
@@ -87,8 +79,11 @@ def mean_pooling(model_output, attention_mask):
 
 def embed_text(text: str) -> np.ndarray:
     encoded = tokenizer(
-        text, truncation=True, padding=True,
-        max_length=MAX_TOKENS, return_tensors="pt"
+        text,
+        truncation=True,
+        padding=True,
+        max_length=MAX_TOKENS,
+        return_tensors="pt",
     ).to(device)
 
     with torch.no_grad():
@@ -144,24 +139,39 @@ def extract_experience_from_jd(text: str) -> float:
 
 def extract_skills_from_jd(text: str) -> set:
     stop_words = {
-        "experience", "years", "knowledge", "required", "skills",
-        "ability", "good", "strong", "hands", "working"
+        "experience",
+        "years",
+        "knowledge",
+        "required",
+        "skills",
+        "ability",
+        "good",
+        "strong",
+        "hands",
+        "working",
     }
     words = set(re.findall(r"[a-zA-Z]{3,}", text.lower()))
     return words - stop_words
 
 
 # ── Recruiter pipeline ────────────────────────────────────────────────────────
-def search_resume_faiss(vector, top_k=TOP_K_RECRUITER):
-    distances, indices = resume_index.search(vector, top_k)
+def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
+    if np.linalg.norm(a) == 0 or np.linalg.norm(b) == 0:
+        return 0.0
+    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
+
+
+def search_resumes(query_vec: np.ndarray, top_k=TOP_K_RECRUITER):
+    # Simple nearest-neighbors search over precomputed resume embeddings.
+    scores = [cosine_similarity(query_vec, vec) for vec in resume_embeddings]
+    ranked = sorted(enumerate(scores), key=lambda x: x[1], reverse=True)[:top_k]
+
     candidates = []
-    for idx, dist in zip(indices[0], distances[0]):
-        if idx >= len(resume_metadata):
-            continue
+    for idx, score in ranked:
         entry = resume_metadata[idx]
         meta = entry.get("metadata", {})
         candidates.append({
-            "semantic_score": float(dist),
+            "semantic_score": score,
             "name": meta.get("name", "Unknown"),
             "email": meta.get("email", "Unknown"),
             "skills": meta.get("skills", []),
@@ -174,6 +184,7 @@ def search_resume_faiss(vector, top_k=TOP_K_RECRUITER):
 
 
 def match_and_rank(candidates, jd_skills, jd_experience):
+    # Keep the existing ranking logic (semantic + skills), but the semantic score comes from cosine similarity.
     results = []
     for c in candidates:
         if jd_experience > 0 and c["experience_years"] < jd_experience:
@@ -230,17 +241,19 @@ Do NOT hallucinate."""
 
 
 # ── Seeker pipeline ───────────────────────────────────────────────────────────
-def search_job_faiss(vector, top_k=TOP_K_SEEKER):
-    scores, indices = job_index.search(vector, top_k)
+
+def search_jobs(query_vec: np.ndarray, top_k=TOP_K_SEEKER):
+    # Simple cosine similarity search over job chunks.
+    scores = [cosine_similarity(query_vec, vec) for vec in job_embeddings]
+    ranked = sorted(enumerate(scores), key=lambda x: x[1], reverse=True)[:top_k]
+
     results = []
-    for idx, score in zip(indices[0], scores[0]):
-        if idx >= len(job_metadata):
-            continue
+    for idx, score in ranked:
         entry = job_metadata[idx]
         results.append({
-            "similarity_score": float(score),
+            "similarity_score": score,
             "text": entry.get("text", ""),
-            "metadata": entry.get("metadata", {})
+            "metadata": entry.get("metadata", {}),
         })
     return results
 
@@ -285,8 +298,8 @@ Be concise and helpful."""
 
 # ── Core search logic (shared by text and file endpoints) ─────────────────────
 def run_recruiter_search(jd_text: str) -> dict:
-    if resume_index is None:
-        raise HTTPException(status_code=503, detail="Resume index not loaded.")
+    if not data_loaded:
+        raise HTTPException(status_code=503, detail="Data not loaded yet. Please try again in a moment.")
     if not jd_text:
         raise HTTPException(status_code=400, detail="Job description cannot be empty.")
 
@@ -297,7 +310,7 @@ def run_recruiter_search(jd_text: str) -> dict:
     jd_skills = extract_skills_from_jd(jd_clean)
     jd_vector = embed_text(jd_clean)
 
-    candidates = search_resume_faiss(jd_vector)
+    candidates = search_resumes(jd_vector)
     ranked = match_and_rank(candidates, jd_skills, jd_experience)
 
     results = []
@@ -317,15 +330,15 @@ def run_recruiter_search(jd_text: str) -> dict:
 
 
 def run_seeker_search(resume_text: str) -> dict:
-    if job_index is None:
-        raise HTTPException(status_code=503, detail="Job index not loaded.")
+    if not data_loaded:
+        raise HTTPException(status_code=503, detail="Data not loaded yet. Please try again in a moment.")
     if not resume_text:
         raise HTTPException(status_code=400, detail="Resume text cannot be empty.")
 
     t0 = time.time()
 
     resume_vector = embed_text(resume_text)
-    matches = search_job_faiss(resume_vector)
+    matches = search_jobs(resume_vector)
 
     results = []
     for match in matches[:5]:
@@ -350,124 +363,47 @@ def run_seeker_search(resume_text: str) -> dict:
 
 
 def _update_building_state():
-    """Internal: keep the combined building flag in sync."""
-    global building_indexes
-    building_indexes = building_resume_index or building_job_index
+    """No-op: indexing is removed; we always use in-memory embeddings."""
+    return
 
 
-def build_resume_index():
-    """Build or load the index used for recruiter searches."""
-    global resume_index, resume_metadata, building_resume_index
-    building_resume_index = True
-    _update_building_state()
+def load_data_and_embeddings():
+    """Load metadata and precompute embeddings for fast in-memory search."""
+    global resume_metadata, job_metadata, resume_embeddings, job_embeddings, data_loaded
 
-    try:
-        # Load existing index if available
-        if os.path.exists(RESUME_FAISS_PATH) and os.path.exists(RESUME_META_PATH):
-            print("Loading resume FAISS index...")
-            resume_index = faiss.read_index(RESUME_FAISS_PATH)
-            with open(RESUME_META_PATH, "r", encoding="utf-8") as f:
-                resume_metadata = json.load(f)
-            print(f"Resume index: {resume_index.ntotal} vectors, {len(resume_metadata)} entries")
-            return
+    # Load metadata JSON
+    if os.path.exists(RESUME_META_PATH):
+        with open(RESUME_META_PATH, "r", encoding="utf-8") as f:
+            resume_metadata = json.load(f)
+    else:
+        resume_metadata = []
 
-        # Otherwise build from metadata JSON
-        if os.path.exists(RESUME_META_PATH):
-            print("Building resume FAISS index from metadata JSON...")
-            with open(RESUME_META_PATH, "r", encoding="utf-8") as f:
-                resume_metadata = json.load(f)
+    if JOB_CHUNKS_PATH.exists():
+        with open(JOB_CHUNKS_PATH, "r", encoding="utf-8") as f:
+            job_metadata = json.load(f)
+    else:
+        job_metadata = []
 
-            vectors = []
-            for entry in resume_metadata:
-                text = entry.get("text", "")
-                if not text:
-                    continue
-                vectors.append(embed_text(text).squeeze().astype("float32"))
+    # Precompute embeddings once for fast search
+    empty_vec = embed_text("").squeeze().astype("float32")
 
-            if vectors:
-                arr = np.vstack(vectors)
-                faiss.normalize_L2(arr)
-                idx = faiss.IndexFlatIP(arr.shape[1])
-                idx.add(arr)
-                resume_index = idx
-                faiss.write_index(resume_index, RESUME_FAISS_PATH)
-                print(f"Built resume index: {resume_index.ntotal} vectors")
-            else:
-                print("WARNING: Resume metadata contains no text to vectorize.")
-        else:
-            print("WARNING: Resume metadata JSON not found. Recruiter search unavailable.")
-    finally:
-        building_resume_index = False
-        _update_building_state()
+    resume_embeddings = []
+    for entry in resume_metadata:
+        text = entry.get("text", "")
+        if not text:
+            resume_embeddings.append(empty_vec)
+            continue
+        resume_embeddings.append(embed_text(clean_text(text)).squeeze().astype("float32"))
 
+    job_embeddings = []
+    for entry in job_metadata:
+        text = entry.get("text", "")
+        if not text:
+            job_embeddings.append(empty_vec)
+            continue
+        job_embeddings.append(embed_text(clean_text(text)).squeeze().astype("float32"))
 
-def build_job_index():
-    """Build or load the index used for seeker searches."""
-    global job_index, job_metadata, building_job_index
-    building_job_index = True
-    _update_building_state()
-
-    try:
-        # Load existing (persisted) index if available
-        if os.path.exists(JOB_FAISS_PATH) and os.path.exists(JOB_META_PATH):
-            print("Loading job FAISS index...")
-            job_index = faiss.read_index(JOB_FAISS_PATH)
-            with open(JOB_META_PATH, "r", encoding="utf-8") as f:
-                job_metadata = json.load(f)
-            print(f"Job index: {job_index.ntotal} vectors, {len(job_metadata)} entries")
-            return
-
-        # Otherwise build from job chunks stored in the repository
-        if JOB_CHUNKS_PATH.exists():
-            print("Building job FAISS index from job description chunks...")
-            with open(JOB_CHUNKS_PATH, "r", encoding="utf-8") as f:
-                chunks = json.load(f)
-
-            vectors = []
-            for chunk in chunks:
-                text = chunk.get("text", "")
-                if not text:
-                    continue
-                vectors.append(embed_text(text).squeeze().astype("float32"))
-
-            if vectors:
-                arr = np.vstack(vectors)
-                faiss.normalize_L2(arr)
-                idx = faiss.IndexFlatIP(arr.shape[1])
-                idx.add(arr)
-                job_index = idx
-                faiss.write_index(job_index, JOB_FAISS_PATH)
-                with open(JOB_META_PATH, "w", encoding="utf-8") as f:
-                    json.dump(chunks, f, indent=2, ensure_ascii=False)
-                job_metadata = chunks
-                print(f"Built job index: {job_index.ntotal} vectors")
-            else:
-                print("WARNING: Job chunks JSON contains no text to vectorize.")
-        else:
-            print("WARNING: Job chunks JSON not found. Job seeker search unavailable.")
-    finally:
-        building_job_index = False
-        _update_building_state()
-
-
-def build_faiss_indexes():
-    """Build FAISS indexes from JSON data sources (if index files aren't present)."""
-    build_resume_index()
-    build_job_index()
-
-
-# ── Runtime state ───────────────────────────────────────────────────────────
-building_indexes = False
-
-
-async def build_faiss_indexes_async():
-    """Run the blocking FAISS build process in a background thread."""
-    global building_indexes
-    building_indexes = True
-    try:
-        await asyncio.to_thread(build_faiss_indexes)
-    finally:
-        building_indexes = False
+    data_loaded = True
 
 
 # ── Startup ───────────────────────────────────────────────────────────────────
@@ -492,8 +428,8 @@ async def startup():
     embed_model.eval()
     print("Embedding model ready.")
 
-    # Build indexes in background (allows the server to start fast)
-    asyncio.create_task(build_faiss_indexes_async())
+    # Load data + embeddings in background
+    asyncio.create_task(asyncio.to_thread(load_data_and_embeddings))
 
 
 # ── API routes: TEXT input ────────────────────────────────────────────────────
@@ -556,37 +492,20 @@ async def seeker_upload(file: UploadFile = File(...)):
 async def health():
     return {
         "status": "ok",
-        "resume_index_loaded": resume_index is not None,
+        "data_loaded": data_loaded,
         "resume_count": len(resume_metadata),
-        "job_index_loaded": job_index is not None,
         "job_count": len(job_metadata),
-        "building_resume_index": building_resume_index,
-        "building_job_index": building_job_index,
-        "building_indexes": building_indexes,
     }
 
 
-@app.post("/api/rebuild-index")
-async def rebuild_index():
-    """Trigger a background rebuild of FAISS indexes.
+@app.post("/api/rebuild-data")
+async def rebuild_data():
+    """Trigger a background reload of metadata + embeddings."""
+    if data_loaded:
+        return {"status": "ok", "message": "Data already loaded."}
 
-    Returns quickly while the rebuild continues in the background.
-    """
-    if building_indexes:
-        return {
-            "status": "ok",
-            "message": "Index rebuild already in progress.",
-            "resume_index_loaded": resume_index is not None,
-            "job_index_loaded": job_index is not None,
-        }
-
-    asyncio.create_task(build_faiss_indexes_async())
-    return {
-        "status": "ok",
-        "message": "Index rebuild started.",
-        "resume_index_loaded": resume_index is not None,
-        "job_index_loaded": job_index is not None,
-    }
+    asyncio.create_task(asyncio.to_thread(load_data_and_embeddings))
+    return {"status": "ok", "message": "Data load started."}
 
 
 # ── Serve frontend ───────────────────────────────────────────────────────────

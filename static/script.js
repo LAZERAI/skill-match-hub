@@ -181,12 +181,12 @@ function updateThemeIcons(theme) {
     const res = await fetch("/api/health");
     const data = await res.json();
 
-    // Update the landing stats and index status UX
-    document.getElementById("statResumes").textContent = data.resume_index_loaded ? data.resume_count : "building…";
-    document.getElementById("statJobs").textContent = data.job_index_loaded ? data.job_count : "building…";
+    // Update the landing stats and status UI
+    document.getElementById("statResumes").textContent = data.data_loaded ? data.resume_count : "loading…";
+    document.getElementById("statJobs").textContent = data.data_loaded ? data.job_count : "loading…";
     updateIndexStatusUI(data);
 
-    // Keep polling while indexes are building in the background
+    // Keep polling until the data is loaded
     checkIndexStatus();
   } catch {
     // silently fail for stats
@@ -566,25 +566,24 @@ function parseRecommendation(evalText) {
   return { badge: "" };
 }
 
-async function rebuildIndexes() {
+async function rebuildData() {
   const btn = document.getElementById("rebuildIcon");
   btn.textContent = "⏳";
   btn.disabled = true;
 
   try {
-    const res = await fetch("/api/rebuild-index", { method: "POST" });
+    const res = await fetch("/api/rebuild-data", { method: "POST" });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.detail || `Server error ${res.status}`);
     }
 
     const data = await res.json();
-    showToast(data.message || "Index rebuild started", "success");
+    showToast(data.message || "Data reload started", "success");
     loadStats();
-    // Keep polling until the indexes are ready
     await checkIndexStatus();
   } catch (err) {
-    showToast(err.message || "Failed to rebuild indexes", "error");
+    showToast(err.message || "Failed to reload data", "error");
   } finally {
     btn.textContent = "🔁";
     btn.disabled = false;
@@ -619,38 +618,28 @@ function setSearchEnabled(role, enabled) {
 }
 
 function updateIndexStatusUI(data) {
-  const recruiterReady = !!data.resume_index_loaded;
-  const seekerReady = !!data.job_index_loaded;
-  const buildingRecruiter = !!data.building_resume_index;
-  const buildingSeeker = !!data.building_job_index;
+  const ready = !!data.data_loaded;
 
   const recruiterBar = document.getElementById("recruiterStatusBar");
   if (recruiterBar) {
-    if (!recruiterReady) {
-      recruiterBar.hidden = false;
-      recruiterBar.querySelector(".status-text").textContent = buildingRecruiter
-        ? "Preparing candidate index… This may take a minute."
-        : "Candidate index unavailable right now.";
-    } else {
-      recruiterBar.hidden = true;
+    recruiterBar.hidden = ready;
+    if (!ready) {
+      recruiterBar.querySelector(".status-text").textContent =
+        "Loading data... please wait.";
     }
   }
 
   const seekerBar = document.getElementById("seekerStatusBar");
   if (seekerBar) {
-    if (!seekerReady) {
-      seekerBar.hidden = false;
-      seekerBar.querySelector(".status-text").textContent = buildingSeeker
-        ? "Preparing job index… This may take a minute."
-        : "Job index unavailable right now.";
-    } else {
-      seekerBar.hidden = true;
+    seekerBar.hidden = ready;
+    if (!ready) {
+      seekerBar.querySelector(".status-text").textContent =
+        "Loading data... please wait.";
     }
   }
 
-  setSearchEnabled("recruiter", recruiterReady);
-  setSearchEnabled("seeker", seekerReady);
-
+  setSearchEnabled("recruiter", ready);
+  setSearchEnabled("seeker", ready);
 }
 
 async function checkIndexStatus(pollSeconds = 3, maxAttempts = 20) {
@@ -661,8 +650,7 @@ async function checkIndexStatus(pollSeconds = 3, maxAttempts = 20) {
       const data = await res.json();
 
       updateIndexStatusUI(data);
-      const ready = data.resume_index_loaded && data.job_index_loaded;
-      if (ready) {
+      if (data.data_loaded) {
         return true;
       }
     } catch {

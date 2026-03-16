@@ -11,6 +11,8 @@ license: mit
 
 # Skill Match Hub
 
+<!-- Trigger rebuild: updated at runtime -->
+
 AI-powered job matching platform using **Llama 3.3 70B** and **FAISS** vector search to connect recruiters with top candidates and job seekers with the best opportunities.
 
 Built with FastAPI + vanilla HTML/CSS/JS frontend.

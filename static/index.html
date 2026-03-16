@@ -107,13 +107,15 @@
           <button class="icon-btn" onclick="rebuildIndexes()" title="Rebuild indexes">
             <span id="rebuildIcon">🔁</span>
           </button>
-              <button class="icon-btn" onclick="exportHiredCandidates()" title="Export hired list">
-                <span id="exportIcon">📥</span>
-              </button>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 2h5.5L13 5.5V13a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5"/><path d="M9 2v4h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-              Upload File
-            </button>
-          </div>
+          <button class="icon-btn" onclick="exportHiredCandidates()" title="Export hired list">
+            <span id="exportIcon">📥</span>
+          </button>
+        </div>
+      </header>
+      <div id="recruiterStatusBar" class="index-status-bar" hidden>
+        <span class="status-text">Preparing candidate index…</span>
+        <button class="secondary-btn" onclick="checkIndexStatus(2, 15)">Refresh</button>
+      </div>
 
           <!-- Text input mode -->
           <div id="recruiterTextMode" class="input-mode active">
@@ -183,6 +185,10 @@
           </button>
         </div>
       </header>
+      <div id="seekerStatusBar" class="index-status-bar" hidden>
+        <span class="status-text">Preparing job index…</span>
+        <button class="secondary-btn" onclick="checkIndexStatus(2, 15)">Refresh</button>
+      </div>
 
       <main class="dashboard-content">
         <!-- Input mode tabs -->

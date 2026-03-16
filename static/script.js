@@ -23,6 +23,7 @@ let seekerFile = null;
 // Recruiter candidate state
 let recruiterCandidates = [];
 let recruiterFilter = "all"; // all | open | hired
+let currentRole = null; // 'recruiter' | 'seeker'
 
 const HIRE_STORAGE_KEY = "smh_hired_candidates";
 
@@ -58,7 +59,10 @@ function switchView(viewName) {
 }
 
 function selectRole(role) {
+  currentRole = role;
   switchView(role);
+  // Keep the index status updated while on the selected view.
+  checkIndexStatus();
 }
 
 function goHome() {
@@ -177,9 +181,13 @@ function updateThemeIcons(theme) {
     const res = await fetch("/api/health");
     const data = await res.json();
 
-    // If indexes are still building or not loaded, show a friendly message
+    // Update the landing stats and index status UX
     document.getElementById("statResumes").textContent = data.resume_index_loaded ? data.resume_count : "building…";
     document.getElementById("statJobs").textContent = data.job_index_loaded ? data.job_count : "building…";
+    updateIndexStatusUI(data);
+
+    // Keep polling while indexes are building in the background
+    checkIndexStatus();
   } catch {
     // silently fail for stats
   }
@@ -512,6 +520,38 @@ function formatLLMText(text) {
   return html;
 }
 
+function clearRecruiterInput() {
+  jdInput.value = "";
+  jdCharCount.textContent = "0";
+  recruiterResults.innerHTML = "";
+  recruiterFile = null;
+  const recruiterFileInput = document.getElementById("recruiterFileInput");
+  if (recruiterFileInput) recruiterFileInput.value = "";
+  const recruiterFileName = document.getElementById("recruiterFileName");
+  if (recruiterFileName) recruiterFileName.textContent = "";
+  const recruiterFileInfo = document.getElementById("recruiterFileInfo");
+  if (recruiterFileInfo) recruiterFileInfo.textContent = "";
+  document.getElementById("recruiterDropZone")?.classList.remove("has-file");
+  const uploadBtn = document.getElementById("uploadRecruiterBtn");
+  if (uploadBtn) uploadBtn.disabled = true;
+}
+
+function clearSeekerInput() {
+  resumeInput.value = "";
+  resumeCharCount.textContent = "0";
+  seekerResults.innerHTML = "";
+  seekerFile = null;
+  const seekerFileInput = document.getElementById("seekerFileInput");
+  if (seekerFileInput) seekerFileInput.value = "";
+  const seekerFileName = document.getElementById("seekerFileName");
+  if (seekerFileName) seekerFileName.textContent = "";
+  const seekerFileInfo = document.getElementById("seekerFileInfo");
+  if (seekerFileInfo) seekerFileInfo.textContent = "";
+  document.getElementById("seekerDropZone")?.classList.remove("has-file");
+  const uploadBtn = document.getElementById("uploadSeekerBtn");
+  if (uploadBtn) uploadBtn.disabled = true;
+}
+
 function parseRecommendation(evalText) {
   const lower = evalText.toLowerCase();
   if (lower.includes("hire") && !lower.includes("not hire")) {
@@ -539,8 +579,10 @@ async function rebuildIndexes() {
     }
 
     const data = await res.json();
-    showToast(data.message || "Indexes rebuilt", "success");
+    showToast(data.message || "Index rebuild started", "success");
     loadStats();
+    // Keep polling until the indexes are ready
+    await checkIndexStatus();
   } catch (err) {
     showToast(err.message || "Failed to rebuild indexes", "error");
   } finally {
@@ -564,22 +606,85 @@ function setBuildingOverlay(visible) {
   overlay.hidden = !visible;
 }
 
-async function checkIndexStatus(retry = 3) {
-  setBuildingOverlay(true);
-  try {
-    const res = await fetch("/api/health");
-    const data = await res.json();
-    const ready = data.resume_index_loaded && data.job_index_loaded;
-    setBuildingOverlay(!ready);
-    return ready;
-  } catch (err) {
-    if (retry > 0) {
-      await new Promise((r) => setTimeout(r, 1500));
-      return checkIndexStatus(retry - 1);
-    }
-    setBuildingOverlay(false);
-    return false;
+function setSearchEnabled(role, enabled) {
+  if (role === "recruiter") {
+    const searchBtn = document.getElementById("searchCandidatesBtn");
+    const uploadBtn = document.getElementById("uploadRecruiterBtn");
+    const clearBtn = document.getElementById("clearRecruiterBtn");
+    if (searchBtn) searchBtn.disabled = !enabled;
+    if (uploadBtn) uploadBtn.disabled = !enabled || !recruiterFile;
+    if (clearBtn) clearBtn.disabled = !enabled;
+  } else if (role === "seeker") {
+    const searchBtn = document.getElementById("searchJobsBtn");
+    const uploadBtn = document.getElementById("uploadSeekerBtn");
+    const clearBtn = document.getElementById("clearSeekerBtn");
+    if (searchBtn) searchBtn.disabled = !enabled;
+    if (uploadBtn) uploadBtn.disabled = !enabled || !seekerFile;
+    if (clearBtn) clearBtn.disabled = !enabled;
   }
+}
+
+function updateIndexStatusUI(data) {
+  const recruiterReady = !!data.resume_index_loaded;
+  const seekerReady = !!data.job_index_loaded;
+  const buildingRecruiter = !!data.building_resume_index;
+  const buildingSeeker = !!data.building_job_index;
+
+  const recruiterBar = document.getElementById("recruiterStatusBar");
+  if (recruiterBar) {
+    if (!recruiterReady) {
+      recruiterBar.hidden = false;
+      recruiterBar.querySelector(".status-text").textContent = buildingRecruiter
+        ? "Preparing candidate index… This may take a minute."
+        : "Candidate index unavailable right now.";
+    } else {
+      recruiterBar.hidden = true;
+    }
+  }
+
+  const seekerBar = document.getElementById("seekerStatusBar");
+  if (seekerBar) {
+    if (!seekerReady) {
+      seekerBar.hidden = false;
+      seekerBar.querySelector(".status-text").textContent = buildingSeeker
+        ? "Preparing job index… This may take a minute."
+        : "Job index unavailable right now.";
+    } else {
+      seekerBar.hidden = true;
+    }
+  }
+
+  setSearchEnabled("recruiter", recruiterReady);
+  setSearchEnabled("seeker", seekerReady);
+
+  const needsOverlay =
+    (currentRole === "recruiter" && !recruiterReady) ||
+    (currentRole === "seeker" && !seekerReady);
+  setBuildingOverlay(needsOverlay);
+}
+
+async function checkIndexStatus(pollSeconds = 3, maxAttempts = 20) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const res = await fetch("/api/health");
+      if (!res.ok) throw new Error("Network error");
+      const data = await res.json();
+
+      updateIndexStatusUI(data);
+      const ready = data.resume_index_loaded && data.job_index_loaded;
+      if (ready) {
+        return true;
+      }
+    } catch {
+      // ignore errors and retry
+    }
+
+    await new Promise((r) => setTimeout(r, pollSeconds * 1000));
+  }
+
+  // If we never became ready, keep the UI usable.
+  setBuildingOverlay(false);
+  return false;
 }
 
 function exportHiredCandidates() {

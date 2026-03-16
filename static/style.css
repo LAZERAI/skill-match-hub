@@ -412,6 +412,29 @@ html, body {
   gap: 8px;
 }
 
+.index-status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 18px;
+  margin: 0 24px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-1);
+  font-size: 13px;
+}
+
+.index-status-bar .status-text {
+  font-weight: 600;
+}
+
+.index-status-bar button {
+  font-size: 12px;
+  padding: 6px 12px;
+}
+
 .back-btn, .icon-btn {
   width: 38px;
   height: 38px;

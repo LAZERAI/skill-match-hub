@@ -6,6 +6,7 @@ import os
 import re
 import json
 import time
+import asyncio
 import faiss
 import torch
 import numpy as np
@@ -51,6 +52,11 @@ tokenizer = None
 embed_model = None
 groq_client = None
 device = "cpu"
+
+# Building state (used for progress / UX feedback)
+building_resume_index = False
+building_job_index = False
+building_indexes = False
 
 
 # ── Request / Response models ─────────────────────────────────────────────────
@@ -335,38 +341,29 @@ def run_seeker_search(resume_text: str) -> dict:
     }
 
 
-# ── Startup ───────────────────────────────────────────────────────────────────
-@app.on_event("startup")
-async def startup():
-    global resume_index, resume_metadata, job_index, job_metadata
-    global tokenizer, embed_model, groq_client, device
+def _update_building_state():
+    """Internal: keep the combined building flag in sync."""
+    global building_indexes
+    building_indexes = building_resume_index or building_job_index
 
-    # Groq client
-    api_key = os.getenv("GROQ_API_KEY")
-    if not api_key:
-        print("WARNING: GROQ_API_KEY not set. LLM calls will fail.")
-    groq_client = Groq(api_key=api_key or "")
 
-    # Device
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"Using device: {device}")
+def build_resume_index():
+    """Build or load the index used for recruiter searches."""
+    global resume_index, resume_metadata, building_resume_index
+    building_resume_index = True
+    _update_building_state()
 
-    # Embedding model
-    print("Loading embedding model...")
-    tokenizer = AutoTokenizer.from_pretrained(HF_MODEL_NAME)
-    embed_model = AutoModel.from_pretrained(HF_MODEL_NAME).to(device)
-    embed_model.eval()
-    print("Embedding model ready.")
+    try:
+        # Load existing index if available
+        if os.path.exists(RESUME_FAISS_PATH) and os.path.exists(RESUME_META_PATH):
+            print("Loading resume FAISS index...")
+            resume_index = faiss.read_index(RESUME_FAISS_PATH)
+            with open(RESUME_META_PATH, "r", encoding="utf-8") as f:
+                resume_metadata = json.load(f)
+            print(f"Resume index: {resume_index.ntotal} vectors, {len(resume_metadata)} entries")
+            return
 
-    # Resume FAISS index (for recruiters)
-    if os.path.exists(RESUME_FAISS_PATH) and os.path.exists(RESUME_META_PATH):
-        print("Loading resume FAISS index...")
-        resume_index = faiss.read_index(RESUME_FAISS_PATH)
-        with open(RESUME_META_PATH, "r", encoding="utf-8") as f:
-            resume_metadata = json.load(f)
-        print(f"Resume index: {resume_index.ntotal} vectors, {len(resume_metadata)} entries")
-    else:
-        # Build resume index from metadata JSON (if available)
+        # Otherwise build from metadata JSON
         if os.path.exists(RESUME_META_PATH):
             print("Building resume FAISS index from metadata JSON...")
             with open(RESUME_META_PATH, "r", encoding="utf-8") as f:
@@ -391,16 +388,28 @@ async def startup():
                 print("WARNING: Resume metadata contains no text to vectorize.")
         else:
             print("WARNING: Resume metadata JSON not found. Recruiter search unavailable.")
+    finally:
+        building_resume_index = False
+        _update_building_state()
 
-    # Job FAISS index (for seekers)
-    if os.path.exists(JOB_FAISS_PATH) and os.path.exists(JOB_META_PATH):
-        print("Loading job FAISS index...")
-        job_index = faiss.read_index(JOB_FAISS_PATH)
-        with open(JOB_META_PATH, "r", encoding="utf-8") as f:
-            job_metadata = json.load(f)
-        print(f"Job index: {job_index.ntotal} vectors, {len(job_metadata)} entries")
-    else:
-        # Build job index from job description chunks JSON
+
+def build_job_index():
+    """Build or load the index used for seeker searches."""
+    global job_index, job_metadata, building_job_index
+    building_job_index = True
+    _update_building_state()
+
+    try:
+        # Load existing index if available
+        if os.path.exists(JOB_FAISS_PATH) and os.path.exists(JOB_META_PATH):
+            print("Loading job FAISS index...")
+            job_index = faiss.read_index(JOB_FAISS_PATH)
+            with open(JOB_META_PATH, "r", encoding="utf-8") as f:
+                job_metadata = json.load(f)
+            print(f"Job index: {job_index.ntotal} vectors, {len(job_metadata)} entries")
+            return
+
+        # Otherwise build from job description chunk JSON
         chunks_path = DATA_DIR / "job_description_chunks.json"
         if os.path.exists(chunks_path) and os.path.exists(JOB_META_PATH):
             print("Building job FAISS index from job description chunks...")
@@ -429,6 +438,55 @@ async def startup():
                 print("WARNING: Job chunks JSON contains no text to vectorize.")
         else:
             print("WARNING: Job chunks JSON or metadata not found. Job seeker search unavailable.")
+    finally:
+        building_job_index = False
+        _update_building_state()
+
+
+def build_faiss_indexes():
+    """Build FAISS indexes from JSON data sources (if index files aren't present)."""
+    build_resume_index()
+    build_job_index()
+
+
+# ── Runtime state ───────────────────────────────────────────────────────────
+building_indexes = False
+
+
+async def build_faiss_indexes_async():
+    """Run the blocking FAISS build process in a background thread."""
+    global building_indexes
+    building_indexes = True
+    try:
+        await asyncio.to_thread(build_faiss_indexes)
+    finally:
+        building_indexes = False
+
+
+# ── Startup ───────────────────────────────────────────────────────────────────
+@app.on_event("startup")
+async def startup():
+    global tokenizer, embed_model, groq_client, device
+
+    # Groq client
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        print("WARNING: GROQ_API_KEY not set. LLM calls will fail.")
+    groq_client = Groq(api_key=api_key or "")
+
+    # Device
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Using device: {device}")
+
+    # Embedding model
+    print("Loading embedding model...")
+    tokenizer = AutoTokenizer.from_pretrained(HF_MODEL_NAME)
+    embed_model = AutoModel.from_pretrained(HF_MODEL_NAME).to(device)
+    embed_model.eval()
+    print("Embedding model ready.")
+
+    # Build indexes in background (allows the server to start fast)
+    asyncio.create_task(build_faiss_indexes_async())
 
 
 # ── API routes: TEXT input ────────────────────────────────────────────────────
@@ -495,6 +553,32 @@ async def health():
         "resume_count": len(resume_metadata),
         "job_index_loaded": job_index is not None,
         "job_count": len(job_metadata),
+        "building_resume_index": building_resume_index,
+        "building_job_index": building_job_index,
+        "building_indexes": building_indexes,
+    }
+
+
+@app.post("/api/rebuild-index")
+async def rebuild_index():
+    """Trigger a background rebuild of FAISS indexes.
+
+    Returns quickly while the rebuild continues in the background.
+    """
+    if building_indexes:
+        return {
+            "status": "ok",
+            "message": "Index rebuild already in progress.",
+            "resume_index_loaded": resume_index is not None,
+            "job_index_loaded": job_index is not None,
+        }
+
+    asyncio.create_task(build_faiss_indexes_async())
+    return {
+        "status": "ok",
+        "message": "Index rebuild started.",
+        "resume_index_loaded": resume_index is not None,
+        "job_index_loaded": job_index is not None,
     }
 
 

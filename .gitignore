@@ -28,3 +28,7 @@ Thumbs.db
 
 # Misc
 *.log
+
+# FAISS indexes (generated at runtime)
+*.faiss
+*.index

@@ -92,6 +92,17 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Hide any legacy "building indexes" overlay elements that may persist from older versions */
+#buildOverlay,
+.build-overlay,
+.index-overlay,
+.loading-overlay {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
 /* ── Scrollbar ──────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }

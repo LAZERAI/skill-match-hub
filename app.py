@@ -26,14 +26,21 @@ BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
 
 # ── Config ────────────────────────────────────────────────────────────────────
-DATA_DIR = BASE_DIR / "full_code"
+# Source data (kept in the repository)
+REPO_DATA_DIR = BASE_DIR / "full_code"
 
-RESUME_FAISS_PATH = str(DATA_DIR / "resume_faiss.index")
-RESUME_META_PATH = str(DATA_DIR / "resume_metadata.json")
+# Persistent storage (Hugging Face Spaces uses /mnt/data for persistent storage)
+PERSISTENT_DIR = Path(os.getenv("PERSISTENT_DIR", "/mnt/data/skill-match-hub"))
+PERSISTENT_DIR.mkdir(parents=True, exist_ok=True)
 
-JOB_FAISS_PATH = str(DATA_DIR / "rag_vector_index.faiss")
-JOB_META_PATH = str(DATA_DIR / "job_description_chunks_metadata.json")
+RESUME_META_PATH = REPO_DATA_DIR / "resume_metadata.json"
+JOB_CHUNKS_PATH = REPO_DATA_DIR / "job_description_chunks.json"
 
+RESUME_FAISS_PATH = PERSISTENT_DIR / "resume_faiss.index"
+JOB_FAISS_PATH = PERSISTENT_DIR / "rag_vector_index.faiss"
+JOB_META_PATH = PERSISTENT_DIR / "job_description_chunks_metadata.json"
+
+# Embedding / LLM config
 HF_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 LLM_MODEL = "llama-3.3-70b-versatile"
 TOP_K_RECRUITER = 20
@@ -400,7 +407,7 @@ def build_job_index():
     _update_building_state()
 
     try:
-        # Load existing index if available
+        # Load existing (persisted) index if available
         if os.path.exists(JOB_FAISS_PATH) and os.path.exists(JOB_META_PATH):
             print("Loading job FAISS index...")
             job_index = faiss.read_index(JOB_FAISS_PATH)
@@ -409,11 +416,10 @@ def build_job_index():
             print(f"Job index: {job_index.ntotal} vectors, {len(job_metadata)} entries")
             return
 
-        # Otherwise build from job description chunk JSON
-        chunks_path = DATA_DIR / "job_description_chunks.json"
-        if os.path.exists(chunks_path) and os.path.exists(JOB_META_PATH):
+        # Otherwise build from job chunks stored in the repository
+        if JOB_CHUNKS_PATH.exists():
             print("Building job FAISS index from job description chunks...")
-            with open(chunks_path, "r", encoding="utf-8") as f:
+            with open(JOB_CHUNKS_PATH, "r", encoding="utf-8") as f:
                 chunks = json.load(f)
 
             vectors = []
@@ -437,7 +443,7 @@ def build_job_index():
             else:
                 print("WARNING: Job chunks JSON contains no text to vectorize.")
         else:
-            print("WARNING: Job chunks JSON or metadata not found. Job seeker search unavailable.")
+            print("WARNING: Job chunks JSON not found. Job seeker search unavailable.")
     finally:
         building_job_index = False
         _update_building_state()

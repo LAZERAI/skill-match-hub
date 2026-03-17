@@ -7,7 +7,7 @@ const app = {
         this.applyTheme();
         document.getElementById('theme-toggle').addEventListener('click', () => this.toggleTheme());
         
-        // Add Ctrl + Enter listener to textareas
+        // Ctrl + Enter support
         document.querySelectorAll('textarea').forEach(el => {
             el.addEventListener('keydown', (e) => {
                 if (e.ctrlKey && e.key === 'Enter') {
@@ -18,14 +18,10 @@ const app = {
         });
     },
 
-    switchView(viewName) {
-        document.querySelectorAll('.view').forEach(el => {
-            el.classList.remove('active');
-            setTimeout(() => { if (!el.classList.contains('active')) el.classList.add('hidden'); }, 300);
-        });
-        const target = document.getElementById(`${viewName}-view`);
-        target.classList.remove('hidden');
-        setTimeout(() => target.classList.add('active'), 10);
+    switchView(name) {
+        document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+        document.getElementById(`${name}-view`).classList.add('active');
+        window.scrollTo(0, 0);
     },
 
     toggleTheme() {
@@ -43,11 +39,11 @@ const app = {
     async handleFileUpload(event, targetId) {
         const file = event.target.files[0];
         if (!file) return;
-        this.showLoading(true, "Extracting text...");
+        this.showLoading(true, "READING_LOCAL_FILESYSTEM...");
         try {
             const text = file.type === "application/pdf" ? await this.readPdf(file) : await file.text();
             document.getElementById(targetId).value = text;
-        } catch (e) { alert("Error reading file."); }
+        } catch (e) { alert("FILE_READ_FAILURE"); }
         finally { this.showLoading(false); event.target.value = ''; }
     },
 
@@ -64,8 +60,8 @@ const app = {
 
     async searchCandidates() {
         const q = document.getElementById('jd-input').value;
-        if (!q.trim()) return alert("Enter JD first.");
-        this.showLoading(true);
+        if (!q.trim()) return;
+        this.showLoading(true, "EXECUTING_SEMANTIC_QUERY...");
         try {
             const res = await fetch('/api/recruiter/search', {
                 method: 'POST',
@@ -74,14 +70,14 @@ const app = {
             });
             const data = await res.json();
             this.renderResults(data, 'recruiter');
-        } catch (e) { alert("Search failed."); }
+        } catch (e) { alert("QUERY_EXECUTION_FAILURE"); }
         finally { this.showLoading(false); }
     },
 
     async searchJobs() {
         const q = document.getElementById('resume-input').value;
-        if (!q.trim()) return alert("Enter resume first.");
-        this.showLoading(true);
+        if (!q.trim()) return;
+        this.showLoading(true, "EXECUTING_SEMANTIC_QUERY...");
         try {
             const res = await fetch('/api/seeker/search', {
                 method: 'POST',
@@ -90,7 +86,7 @@ const app = {
             });
             const data = await res.json();
             this.renderResults(data, 'seeker');
-        } catch (e) { alert("Search failed."); }
+        } catch (e) { alert("QUERY_EXECUTION_FAILURE"); }
         finally { this.showLoading(false); }
     },
 
@@ -98,45 +94,35 @@ const app = {
         const container = document.getElementById(`${type}-results`);
         container.innerHTML = '';
         
-        results.forEach((res, i) => {
+        results.forEach(res => {
             const card = document.createElement('div');
-            card.className = 'result-item';
+            card.className = 'result-card';
             const score = Math.round(res.score * 100);
             
-            // Handle LLM analysis display (Graceful error handling)
             let analysisHtml = '';
             if (res.llm_analysis) {
-                if (res.llm_analysis.includes('401') || res.llm_analysis.includes('Invalid API Key')) {
-                    analysisHtml = `
-                        <div class="analysis-card">
-                            <div class="ai-offline"><i class="fa-solid fa-circle-exclamation"></i> AI Analysis currently offline</div>
-                        </div>`;
-                } else {
-                    analysisHtml = `
-                        <div class="analysis-card">
-                            <p style="font-weight: 700; margin-bottom: 0.5rem; font-size: 0.8rem; text-transform: uppercase; color: var(--primary);">
-                                <i class="fa-solid fa-sparkles"></i> AI Insights
-                            </p>
-                            <div style="font-size: 0.95rem;">${res.llm_analysis.replace(/\n/g, '<br>')}</div>
-                        </div>`;
-                }
+                const isError = res.llm_analysis.includes('_ERROR') || res.llm_analysis.includes('_OFFLINE');
+                analysisHtml = `
+                    <div class="ai-box" style="${isError ? 'opacity: 0.5; border-top-color: var(--muted);' : ''}">
+                        <h4>${isError ? 'AI_ENGINE_OFFLINE' : 'AI_GENERATED_INSIGHTS'}</h4>
+                        <div style="font-size: 0.9rem;">${res.llm_analysis.replace(/\n/g, '<br>')}</div>
+                    </div>`;
             }
 
             const meta = res.metadata;
-            const title = type === 'recruiter' ? (meta.name || "Candidate") : (meta.job_title + " @ " + meta.company);
-            const subtitle = type === 'recruiter' ? (meta.email || "Confidential Profile") : (meta.location || "Remote");
+            const title = type === 'recruiter' ? (meta.name || "CANDIDATE") : (meta.job_title + " @ " + meta.company);
+            const sub = type === 'recruiter' ? (meta.email || "CONFIDENTIAL") : (meta.location || "REMOTE");
 
             card.innerHTML = `
-                <div style="display: flex; justify-content: space-between; align-items: start;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                     <div>
-                        <h3 style="font-weight: 800; font-size: 1.2rem;">${title}</h3>
-                        <p style="color: var(--text-muted); font-size: 0.9rem;">${subtitle}</p>
+                        <h3 style="letter-spacing: -0.02em;">${title.toUpperCase()}</h3>
+                        <p style="color: var(--muted); font-size: 0.8rem; font-family: 'Geist Mono', monospace;">${sub}</p>
                     </div>
-                    <span class="score-tag">${score}% Match</span>
+                    <div class="match-score">${score}%</div>
                 </div>
-                <div style="margin-top: 1rem; color: var(--text-muted); font-size: 0.9rem; max-height: 100px; overflow: hidden; position: relative;">
+                <div style="margin-top: 1.5rem; font-size: 0.85rem; color: var(--muted); line-height: 1.4;">
                     ${res.content}
-                    <div style="position: absolute; bottom: 0; left: 0; width: 100%; height: 30px; background: linear-gradient(transparent, var(--glass));"></div>
                 </div>
                 ${analysisHtml}
             `;
@@ -145,16 +131,11 @@ const app = {
     },
 
     clearSearch(role) {
-        if (role === 'recruiter') {
-            document.getElementById('jd-input').value = '';
-            document.getElementById('recruiter-results').innerHTML = '';
-        } else {
-            document.getElementById('resume-input').value = '';
-            document.getElementById('seeker-results').innerHTML = '';
-        }
+        document.getElementById(role === 'recruiter' ? 'jd-input' : 'resume-input').value = '';
+        document.getElementById(`${role}-results`).innerHTML = '';
     },
 
-    showLoading(isLoading, text = "Processing...") {
+    showLoading(isLoading, text = "PROCESSING...") {
         const overlay = document.getElementById('loading-overlay');
         overlay.querySelector('p').innerText = text;
         overlay.className = isLoading ? '' : 'hidden';

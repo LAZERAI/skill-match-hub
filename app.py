@@ -101,7 +101,7 @@ def get_embedding(text: str) -> np.ndarray:
 
 def generate_llm_analysis(prompt: str) -> str:
     if not groq_client:
-        return "LLM analysis unavailable (GROQ_API_KEY missing)."
+        return "AI Analysis currently offline (System check required)."
     
     try:
         completion = groq_client.chat.completions.create(
@@ -115,8 +115,13 @@ def generate_llm_analysis(prompt: str) -> str:
         )
         return completion.choices[0].message.content
     except Exception as e:
+        # Check specifically for 401/Invalid Key
+        err_msg = str(e)
+        if "401" in err_msg or "api_key" in err_msg.lower():
+            logger.error(f"Groq API key invalid: {e}")
+            return "AI Analysis currently offline (System maintenance)."
         logger.error(f"Groq API error: {e}")
-        return f"Error generating analysis: {str(e)}"
+        return "AI Analysis currently offline (System busy)."
 
 @app.post("/api/recruiter/search", response_model=List[SearchResult])
 async def recruiter_search(request: SearchRequest):

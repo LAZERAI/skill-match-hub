@@ -1,14 +1,21 @@
 const app = {
     state: {
-        currentView: 'landing',
-        theme: localStorage.getItem('theme') || 'light',
-        rawResults: [],
-        blindMode: false
+        theme: localStorage.getItem('theme') || 'light'
     },
 
     init() {
         this.applyTheme();
         document.getElementById('theme-toggle').addEventListener('click', () => this.toggleTheme());
+        
+        // Add Ctrl + Enter listener to textareas
+        document.querySelectorAll('textarea').forEach(el => {
+            el.addEventListener('keydown', (e) => {
+                if (e.ctrlKey && e.key === 'Enter') {
+                    if (el.id === 'jd-input') this.searchCandidates();
+                    else if (el.id === 'resume-input') this.searchJobs();
+                }
+            });
+        });
     },
 
     switchView(viewName) {
@@ -19,7 +26,6 @@ const app = {
         const target = document.getElementById(`${viewName}-view`);
         target.classList.remove('hidden');
         setTimeout(() => target.classList.add('active'), 10);
-        this.state.currentView = viewName;
     },
 
     toggleTheme() {
@@ -32,26 +38,6 @@ const app = {
         document.documentElement.setAttribute('data-theme', this.state.theme);
         const icon = document.querySelector('#theme-toggle i');
         icon.className = this.state.theme === 'dark' ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
-    },
-
-    toggleBlindMode() {
-        this.state.blindMode = document.getElementById('blind-mode-toggle').checked;
-        const container = document.getElementById('recruiter-results');
-        if (this.state.blindMode) container.classList.add('blind-mode-active');
-        else container.classList.remove('blind-mode-active');
-    },
-
-    filterResults() {
-        const threshold = parseInt(document.getElementById('threshold-slider').value);
-        document.getElementById('threshold-val').innerText = threshold;
-        const sortBy = document.getElementById('sort-order').value;
-
-        let filtered = this.state.rawResults.filter(r => (r.score * 100) >= threshold);
-        
-        if (sortBy === 'score') filtered.sort((a, b) => b.score - a.score);
-        else if (sortBy === 'exp') filtered.sort((a, b) => (b.metadata.total_experience_years || 0) - (a.metadata.total_experience_years || 0));
-
-        this.renderResultsToUI(filtered);
     },
 
     async handleFileUpload(event, targetId) {
@@ -86,9 +72,8 @@ const app = {
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ query: q })
             });
-            this.state.rawResults = await res.json();
-            document.getElementById('recruiter-controls').classList.remove('hidden');
-            this.filterResults();
+            const data = await res.json();
+            this.renderResults(data, 'recruiter');
         } catch (e) { alert("Search failed."); }
         finally { this.showLoading(false); }
     },
@@ -104,111 +89,76 @@ const app = {
                 body: JSON.stringify({ query: q })
             });
             const data = await res.json();
-            this.renderSeekerResults(data);
+            this.renderResults(data, 'seeker');
         } catch (e) { alert("Search failed."); }
         finally { this.showLoading(false); }
     },
 
-    renderResultsToUI(results) {
-        const container = document.getElementById('recruiter-results');
+    renderResults(results, type) {
+        const container = document.getElementById(`${type}-results`);
         container.innerHTML = '';
-        results.forEach(res => {
+        
+        results.forEach((res, i) => {
             const card = document.createElement('div');
-            card.className = 'result-card';
+            card.className = 'result-item';
             const score = Math.round(res.score * 100);
-            const meta = res.metadata;
             
-            const llmData = this.parseLLMOutput(res.llm_analysis);
+            // Handle LLM analysis display (Graceful error handling)
+            let analysisHtml = '';
+            if (res.llm_analysis) {
+                if (res.llm_analysis.includes('401') || res.llm_analysis.includes('Invalid API Key')) {
+                    analysisHtml = `
+                        <div class="analysis-card">
+                            <div class="ai-offline"><i class="fa-solid fa-circle-exclamation"></i> AI Analysis currently offline</div>
+                        </div>`;
+                } else {
+                    analysisHtml = `
+                        <div class="analysis-card">
+                            <p style="font-weight: 700; margin-bottom: 0.5rem; font-size: 0.8rem; text-transform: uppercase; color: var(--primary);">
+                                <i class="fa-solid fa-sparkles"></i> AI Insights
+                            </p>
+                            <div style="font-size: 0.95rem;">${res.llm_analysis.replace(/\n/g, '<br>')}</div>
+                        </div>`;
+                }
+            }
+
+            const meta = res.metadata;
+            const title = type === 'recruiter' ? (meta.name || "Candidate") : (meta.job_title + " @ " + meta.company);
+            const subtitle = type === 'recruiter' ? (meta.email || "Confidential Profile") : (meta.location || "Remote");
 
             card.innerHTML = `
-                <div style="display:flex; justify-content:space-between; align-items:start">
+                <div style="display: flex; justify-content: space-between; align-items: start;">
                     <div>
-                        <h3 class="candidate-name">${meta.name || "Candidate"}</h3>
-                        <p style="font-size:0.9rem; color:var(--text-secondary)">${meta.email || ""}</p>
+                        <h3 style="font-weight: 800; font-size: 1.2rem;">${title}</h3>
+                        <p style="color: var(--text-muted); font-size: 0.9rem;">${subtitle}</p>
                     </div>
-                    <div class="match-circle">
-                        <svg viewBox="0 0 36 36">
-                            <path class="circle-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                            <path class="circle-progress" stroke-dasharray="${score}, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                        </svg>
-                        <div class="match-text">${score}%</div>
-                    </div>
+                    <span class="score-tag">${score}% Match</span>
                 </div>
-                <div style="margin-top:1rem">
-                    <p><strong>Experience:</strong> ${meta.total_experience_years || 0} Years</p>
-                    <div style="margin-top:0.5rem">
-                        ${llmData.matched.map(s => `<span class="skill-tag skill-matched">${s}</span>`).join('')}
-                        ${llmData.missing.map(s => `<span class="skill-tag skill-missing">${s}</span>`).join('')}
-                    </div>
+                <div style="margin-top: 1rem; color: var(--text-muted); font-size: 0.9rem; max-height: 100px; overflow: hidden; position: relative;">
+                    ${res.content}
+                    <div style="position: absolute; bottom: 0; left: 0; width: 100%; height: 30px; background: linear-gradient(transparent, var(--glass));"></div>
                 </div>
-                <div class="analysis-box">
-                    <p style="font-size:0.9rem">${llmData.summary || res.llm_analysis}</p>
-                </div>
+                ${analysisHtml}
             `;
             container.appendChild(card);
         });
-    },
-
-    renderSeekerResults(results) {
-        const container = document.getElementById('seeker-results');
-        container.innerHTML = '';
-        results.forEach(res => {
-            const card = document.createElement('div');
-            card.className = 'result-card';
-            const score = Math.round(res.score * 100);
-            const llmData = this.parseLLMOutput(res.llm_analysis, true);
-
-            card.innerHTML = `
-                <div style="display:flex; justify-content:space-between">
-                    <h3>${res.metadata.job_title} @ ${res.metadata.company}</h3>
-                    <div class="match-circle">
-                         <svg viewBox="0 0 36 36">
-                            <path class="circle-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                            <path class="circle-progress" stroke-dasharray="${score}, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                        </svg>
-                        <div class="match-text">${score}%</div>
-                    </div>
-                </div>
-                <div class="analysis-box" style="border-left-color: var(--accent-green)">
-                    <p><strong><i class="fa-solid fa-check"></i> Skills You Have:</strong> ${llmData.matched.join(', ')}</p>
-                    <p style="margin-top:0.5rem"><strong><i class="fa-solid fa-lightbulb"></i> Skills to Learn:</strong> ${llmData.missing.join(', ')}</p>
-                    <p style="margin-top:0.5rem; font-style:italic; color:var(--text-secondary)">${llmData.summary}</p>
-                </div>
-            `;
-            container.appendChild(card);
-        });
-    },
-
-    parseLLMOutput(text, isSeeker = false) {
-        if (!text || text.includes('Error')) return { matched: [], missing: [], summary: text };
-        const lines = text.split('\n');
-        const getList = (prefix) => {
-            const line = lines.find(l => l.toUpperCase().includes(prefix));
-            if (!line) return [];
-            return line.split(':')[1].replace(/[\[\]]/g, '').split(',').map(s => s.trim());
-        };
-        return {
-            matched: getList('MATCHED SKILLS'),
-            missing: getList(isSeeker ? 'SKILLS GAP' : 'MISSING SKILLS'),
-            summary: lines.find(l => l.toUpperCase().includes(isSeeker ? 'ADVICE' : 'SUMMARY'))?.split(':')[1] || ""
-        };
     },
 
     clearSearch(role) {
         if (role === 'recruiter') {
             document.getElementById('jd-input').value = '';
             document.getElementById('recruiter-results').innerHTML = '';
-            document.getElementById('recruiter-controls').classList.add('hidden');
         } else {
             document.getElementById('resume-input').value = '';
             document.getElementById('seeker-results').innerHTML = '';
         }
     },
 
-    showLoading(isLoading, text = "Analyzing with AI...") {
+    showLoading(isLoading, text = "Processing...") {
         const overlay = document.getElementById('loading-overlay');
         overlay.querySelector('p').innerText = text;
         overlay.className = isLoading ? '' : 'hidden';
     }
 };
+
 document.addEventListener('DOMContentLoaded', () => app.init());

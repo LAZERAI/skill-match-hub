@@ -13,7 +13,7 @@ from groq import Groq
 from dotenv import load_dotenv
 
 # Load environment variables
-load_dotenv()
+load_dotenv(override=True)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -158,15 +158,15 @@ async def recruiter_search(request: SearchRequest):
     # The requirement implies "evaluation on top results". Let's do a quick analysis for each of the top 3.
     
     if groq_client:
-        for i, res in enumerate(results[:3]): # Analyze top 3 only to save tokens/time
+        for i, res in enumerate(results[:3]):
             prompt = f"""
-            Job Description provided by Recruiter:
-            "{request.query[:1000]}..."
+            Job Description: "{request.query[:1000]}"
+            Candidate Profile: "{candidates_context[i]}"
 
-            Candidate Profile:
-            "{candidates_context[i]}"
-
-            Analyze why this candidate is a good match or what is missing. 3 bullet points max.
+            Provide a professional evaluation in exactly this format:
+            MATCHED SKILLS: [list 3-5 key skills found in both]
+            MISSING SKILLS: [list 2-3 key requirements missing]
+            SUMMARY: [2 sentences why they fit]
             """
             res.llm_analysis = generate_llm_analysis(prompt)
 
@@ -211,13 +211,13 @@ async def seeker_search(request: SearchRequest):
     if groq_client:
         for i, res in enumerate(results[:3]):
             prompt = f"""
-            Candidate Resume Summary:
-            "{request.query[:1000]}..."
+            Candidate Resume: "{request.query[:1000]}"
+            Job Posting: "{jobs_context[i]}"
 
-            Job Opening:
-            "{jobs_context[i]}"
-
-            Why is this job a good fit for the candidate? What specific skill should they highlight? 3 bullet points max.
+            Provide a professional evaluation in exactly this format:
+            MATCHED SKILLS: [list 3-5 key skills you have]
+            SKILLS GAP: [list 2-3 things to learn to get this job]
+            ADVICE: [2 sentences on how to stand out]
             """
             res.llm_analysis = generate_llm_analysis(prompt)
 

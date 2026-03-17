@@ -7,6 +7,10 @@
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    </script>
 </head>
 <body>
     <nav class="navbar">
@@ -22,7 +26,7 @@
     </nav>
 
     <main class="container">
-        <!-- View 1: Landing / Role Selection -->
+        <!-- View 1: Landing -->
         <section id="landing-view" class="view active">
             <div class="hero-text">
                 <h1>Find your perfect match.</h1>
@@ -30,7 +34,7 @@
             </div>
             
             <div class="role-cards">
-                <div class="card role-card" onclick="app.switchView('recruiter')">
+                <div class="role-card" onclick="app.switchView('recruiter')">
                     <div class="icon-wrapper recruiter-icon">
                         <i class="fa-solid fa-briefcase"></i>
                     </div>
@@ -38,7 +42,7 @@
                     <p>Find top talent by pasting your job description.</p>
                 </div>
 
-                <div class="card role-card" onclick="app.switchView('seeker')">
+                <div class="role-card" onclick="app.switchView('seeker')">
                     <div class="icon-wrapper seeker-icon">
                         <i class="fa-solid fa-user-tie"></i>
                     </div>
@@ -59,15 +63,42 @@
 
             <div class="search-box">
                 <label for="jd-input">Paste Job Description</label>
-                <textarea id="jd-input" placeholder="e.g. We are looking for a Senior Python Developer with experience in FastAPI and Machine Learning..."></textarea>
-                <button class="primary-btn" onclick="app.searchCandidates()">
-                    <i class="fa-solid fa-search"></i> Find Candidates
-                </button>
+                <textarea id="jd-input" placeholder="e.g. Senior Python Developer..."></textarea>
+                <div class="button-group">
+                    <button class="primary-btn" onclick="app.searchCandidates()">
+                        <i class="fa-solid fa-search"></i> Find Candidates
+                    </button>
+                    <label class="secondary-btn">
+                        <i class="fa-solid fa-file-upload"></i> Upload (PDF/TXT)
+                        <input type="file" id="jd-file" accept=".pdf,.txt" hidden onchange="app.handleFileUpload(event, 'jd-input')">
+                    </label>
+                    <button class="ghost-btn" onclick="app.clearSearch('recruiter')">
+                        <i class="fa-solid fa-eraser"></i> Clear
+                    </button>
+                </div>
             </div>
 
-            <div id="recruiter-results" class="results-container">
-                <!-- Results will be injected here -->
+            <div class="controls-bar hidden" id="recruiter-controls">
+                <div class="filter-group">
+                    <div class="toggle-container">
+                        <span>Blind Mode</span>
+                        <label class="switch">
+                            <input type="checkbox" id="blind-mode-toggle" onchange="app.toggleBlindMode()">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div>
+                        <label>Min Match: <span id="threshold-val">0</span>%</label>
+                        <input type="range" id="threshold-slider" min="0" max="100" value="0" oninput="app.filterResults()">
+                    </div>
+                </div>
+                <select id="sort-order" onchange="app.filterResults()">
+                    <option value="score">Sort by Match Score</option>
+                    <option value="exp">Sort by Experience</option>
+                </select>
             </div>
+
+            <div id="recruiter-results" class="results-container"></div>
         </section>
 
         <!-- View 3: Seeker Dashboard -->
@@ -81,15 +112,22 @@
 
             <div class="search-box">
                 <label for="resume-input">Paste Resume / CV Text</label>
-                <textarea id="resume-input" placeholder="e.g. John Doe. Experienced Software Engineer with 5 years in..."></textarea>
-                <button class="primary-btn" onclick="app.searchJobs()">
-                    <i class="fa-solid fa-briefcase"></i> Find Jobs
-                </button>
+                <textarea id="resume-input" placeholder="e.g. Experienced Software Engineer..."></textarea>
+                <div class="button-group">
+                    <button class="primary-btn" onclick="app.searchJobs()">
+                        <i class="fa-solid fa-briefcase"></i> Find Jobs
+                    </button>
+                    <label class="secondary-btn">
+                        <i class="fa-solid fa-file-upload"></i> Upload (PDF/TXT)
+                        <input type="file" id="resume-file" accept=".pdf,.txt" hidden onchange="app.handleFileUpload(event, 'resume-input')">
+                    </label>
+                    <button class="ghost-btn" onclick="app.clearSearch('seeker')">
+                        <i class="fa-solid fa-eraser"></i> Clear
+                    </button>
+                </div>
             </div>
 
-            <div id="seeker-results" class="results-container">
-                <!-- Results will be injected here -->
-            </div>
+            <div id="seeker-results" class="results-container"></div>
         </section>
     </main>
 

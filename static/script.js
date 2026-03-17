@@ -1,7 +1,9 @@
 const app = {
     state: {
         currentView: 'landing',
-        theme: localStorage.getItem('theme') || 'light'
+        theme: localStorage.getItem('theme') || 'light',
+        rawResults: [],
+        blindMode: false
     },
 
     init() {
@@ -10,23 +12,13 @@ const app = {
     },
 
     switchView(viewName) {
-        // Hide all views
         document.querySelectorAll('.view').forEach(el => {
             el.classList.remove('active');
-            setTimeout(() => {
-                if (!el.classList.contains('active')) el.classList.add('hidden');
-            }, 300); // Match CSS transition
+            setTimeout(() => { if (!el.classList.contains('active')) el.classList.add('hidden'); }, 300);
         });
-
-        // Show target view
         const target = document.getElementById(`${viewName}-view`);
         target.classList.remove('hidden');
-        
-        // Small delay to allow display:block to apply before opacity transition
-        setTimeout(() => {
-            target.classList.add('active');
-        }, 10);
-
+        setTimeout(() => target.classList.add('active'), 10);
         this.state.currentView = viewName;
     },
 
@@ -39,104 +31,119 @@ const app = {
     applyTheme() {
         document.documentElement.setAttribute('data-theme', this.state.theme);
         const icon = document.querySelector('#theme-toggle i');
-        if (this.state.theme === 'dark') {
-            icon.classList.remove('fa-moon');
-            icon.classList.add('fa-sun');
-        } else {
-            icon.classList.remove('fa-sun');
-            icon.classList.add('fa-moon');
+        icon.className = this.state.theme === 'dark' ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
+    },
+
+    toggleBlindMode() {
+        this.state.blindMode = document.getElementById('blind-mode-toggle').checked;
+        const container = document.getElementById('recruiter-results');
+        if (this.state.blindMode) container.classList.add('blind-mode-active');
+        else container.classList.remove('blind-mode-active');
+    },
+
+    filterResults() {
+        const threshold = parseInt(document.getElementById('threshold-slider').value);
+        document.getElementById('threshold-val').innerText = threshold;
+        const sortBy = document.getElementById('sort-order').value;
+
+        let filtered = this.state.rawResults.filter(r => (r.score * 100) >= threshold);
+        
+        if (sortBy === 'score') filtered.sort((a, b) => b.score - a.score);
+        else if (sortBy === 'exp') filtered.sort((a, b) => (b.metadata.total_experience_years || 0) - (a.metadata.total_experience_years || 0));
+
+        this.renderResultsToUI(filtered);
+    },
+
+    async handleFileUpload(event, targetId) {
+        const file = event.target.files[0];
+        if (!file) return;
+        this.showLoading(true, "Extracting text...");
+        try {
+            const text = file.type === "application/pdf" ? await this.readPdf(file) : await file.text();
+            document.getElementById(targetId).value = text;
+        } catch (e) { alert("Error reading file."); }
+        finally { this.showLoading(false); event.target.value = ''; }
+    },
+
+    async readPdf(file) {
+        const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+        let text = "";
+        for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const content = await page.getTextContent();
+            text += content.items.map(s => s.str).join(" ") + "\n";
         }
+        return text;
     },
 
     async searchCandidates() {
-        const query = document.getElementById('jd-input').value;
-        if (!query.trim()) return alert("Please enter a job description.");
-
+        const q = document.getElementById('jd-input').value;
+        if (!q.trim()) return alert("Enter JD first.");
         this.showLoading(true);
         try {
-            const response = await fetch('/api/recruiter/search', {
+            const res = await fetch('/api/recruiter/search', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query: query, top_k: 5 })
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ query: q })
             });
-            
-            if (!response.ok) throw new Error('Search failed');
-            
-            const results = await response.json();
-            this.renderRecruiterResults(results);
-        } catch (err) {
-            console.error(err);
-            alert("Error fetching candidates. Please try again.");
-        } finally {
-            this.showLoading(false);
-        }
+            this.state.rawResults = await res.json();
+            document.getElementById('recruiter-controls').classList.remove('hidden');
+            this.filterResults();
+        } catch (e) { alert("Search failed."); }
+        finally { this.showLoading(false); }
     },
 
     async searchJobs() {
-        const query = document.getElementById('resume-input').value;
-        if (!query.trim()) return alert("Please enter your resume text.");
-
+        const q = document.getElementById('resume-input').value;
+        if (!q.trim()) return alert("Enter resume first.");
         this.showLoading(true);
         try {
-            const response = await fetch('/api/seeker/search', {
+            const res = await fetch('/api/seeker/search', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query: query, top_k: 5 })
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ query: q })
             });
-            
-            if (!response.ok) throw new Error('Search failed');
-            
-            const results = await response.json();
-            this.renderSeekerResults(results);
-        } catch (err) {
-            console.error(err);
-            alert("Error fetching jobs. Please try again.");
-        } finally {
-            this.showLoading(false);
-        }
+            const data = await res.json();
+            this.renderSeekerResults(data);
+        } catch (e) { alert("Search failed."); }
+        finally { this.showLoading(false); }
     },
 
-    renderRecruiterResults(results) {
+    renderResultsToUI(results) {
         const container = document.getElementById('recruiter-results');
         container.innerHTML = '';
-        
-        if (results.length === 0) {
-            container.innerHTML = '<p style="text-align:center; color:var(--text-secondary)">No matching candidates found.</p>';
-            return;
-        }
-
         results.forEach(res => {
             const card = document.createElement('div');
             card.className = 'result-card';
+            const score = Math.round(res.score * 100);
+            const meta = res.metadata;
             
-            // Extract metadata safely
-            const name = res.metadata.name || "Unknown Candidate";
-            const email = res.metadata.email || "No email";
-            const skills = res.metadata.skills ? res.metadata.skills.join(', ') : "Not listed";
-            const exp = res.metadata.total_experience_years || 0;
-
-            let llmHtml = '';
-            if (res.llm_analysis) {
-                // Convert newlines to breaks for basic formatting
-                const analysisText = res.llm_analysis.replace(/\n/g, '<br>');
-                llmHtml = `
-                    <div class="llm-analysis">
-                        <h4><i class="fa-solid fa-robot"></i> AI Analysis</h4>
-                        <p>${analysisText}</p>
-                    </div>
-                `;
-            }
+            const llmData = this.parseLLMOutput(res.llm_analysis);
 
             card.innerHTML = `
-                <div class="result-header">
-                    <h3>${name}</h3>
-                    <span class="score-badge">Match: ${(res.score * 100).toFixed(0)}%</span>
+                <div style="display:flex; justify-content:space-between; align-items:start">
+                    <div>
+                        <h3 class="candidate-name">${meta.name || "Candidate"}</h3>
+                        <p style="font-size:0.9rem; color:var(--text-secondary)">${meta.email || ""}</p>
+                    </div>
+                    <div class="match-circle">
+                        <svg viewBox="0 0 36 36">
+                            <path class="circle-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                            <path class="circle-progress" stroke-dasharray="${score}, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                        </svg>
+                        <div class="match-text">${score}%</div>
+                    </div>
                 </div>
-                <p><strong><i class="fa-solid fa-envelope"></i></strong> ${email}</p>
-                <p><strong><i class="fa-solid fa-briefcase"></i> Exp:</strong> ${exp} years</p>
-                <p><strong><i class="fa-solid fa-code"></i> Skills:</strong> ${skills}</p>
-                <p style="margin-top:0.5rem; color:var(--text-secondary)">${res.content}</p>
-                ${llmHtml}
+                <div style="margin-top:1rem">
+                    <p><strong>Experience:</strong> ${meta.total_experience_years || 0} Years</p>
+                    <div style="margin-top:0.5rem">
+                        ${llmData.matched.map(s => `<span class="skill-tag skill-matched">${s}</span>`).join('')}
+                        ${llmData.missing.map(s => `<span class="skill-tag skill-missing">${s}</span>`).join('')}
+                    </div>
+                </div>
+                <div class="analysis-box">
+                    <p style="font-size:0.9rem">${llmData.summary || res.llm_analysis}</p>
+                </div>
             `;
             container.appendChild(card);
         });
@@ -145,51 +152,63 @@ const app = {
     renderSeekerResults(results) {
         const container = document.getElementById('seeker-results');
         container.innerHTML = '';
-
-        if (results.length === 0) {
-            container.innerHTML = '<p style="text-align:center; color:var(--text-secondary)">No matching jobs found.</p>';
-            return;
-        }
-
         results.forEach(res => {
             const card = document.createElement('div');
             card.className = 'result-card';
-            
-            const title = res.metadata.job_title || "Unknown Role";
-            const company = res.metadata.company || "Unknown Company";
-            const location = res.metadata.location || "Remote/Unknown";
-
-            let llmHtml = '';
-            if (res.llm_analysis) {
-                 const analysisText = res.llm_analysis.replace(/\n/g, '<br>');
-                llmHtml = `
-                    <div class="llm-analysis">
-                        <h4><i class="fa-solid fa-lightbulb"></i> Career Advice</h4>
-                        <p>${analysisText}</p>
-                    </div>
-                `;
-            }
+            const score = Math.round(res.score * 100);
+            const llmData = this.parseLLMOutput(res.llm_analysis, true);
 
             card.innerHTML = `
-                <div class="result-header">
-                    <h3>${title}</h3>
-                    <span class="score-badge">Match: ${(res.score * 100).toFixed(0)}%</span>
+                <div style="display:flex; justify-content:space-between">
+                    <h3>${res.metadata.job_title} @ ${res.metadata.company}</h3>
+                    <div class="match-circle">
+                         <svg viewBox="0 0 36 36">
+                            <path class="circle-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                            <path class="circle-progress" stroke-dasharray="${score}, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                        </svg>
+                        <div class="match-text">${score}%</div>
+                    </div>
                 </div>
-                <p><strong><i class="fa-solid fa-building"></i></strong> ${company}</p>
-                <p><strong><i class="fa-solid fa-map-marker-alt"></i></strong> ${location}</p>
-                <p style="margin-top:0.5rem; color:var(--text-secondary)">${res.content}</p>
-                ${llmHtml}
+                <div class="analysis-box" style="border-left-color: var(--accent-green)">
+                    <p><strong><i class="fa-solid fa-check"></i> Skills You Have:</strong> ${llmData.matched.join(', ')}</p>
+                    <p style="margin-top:0.5rem"><strong><i class="fa-solid fa-lightbulb"></i> Skills to Learn:</strong> ${llmData.missing.join(', ')}</p>
+                    <p style="margin-top:0.5rem; font-style:italic; color:var(--text-secondary)">${llmData.summary}</p>
+                </div>
             `;
             container.appendChild(card);
         });
     },
 
-    showLoading(isLoading) {
+    parseLLMOutput(text, isSeeker = false) {
+        if (!text || text.includes('Error')) return { matched: [], missing: [], summary: text };
+        const lines = text.split('\n');
+        const getList = (prefix) => {
+            const line = lines.find(l => l.toUpperCase().includes(prefix));
+            if (!line) return [];
+            return line.split(':')[1].replace(/[\[\]]/g, '').split(',').map(s => s.trim());
+        };
+        return {
+            matched: getList('MATCHED SKILLS'),
+            missing: getList(isSeeker ? 'SKILLS GAP' : 'MISSING SKILLS'),
+            summary: lines.find(l => l.toUpperCase().includes(isSeeker ? 'ADVICE' : 'SUMMARY'))?.split(':')[1] || ""
+        };
+    },
+
+    clearSearch(role) {
+        if (role === 'recruiter') {
+            document.getElementById('jd-input').value = '';
+            document.getElementById('recruiter-results').innerHTML = '';
+            document.getElementById('recruiter-controls').classList.add('hidden');
+        } else {
+            document.getElementById('resume-input').value = '';
+            document.getElementById('seeker-results').innerHTML = '';
+        }
+    },
+
+    showLoading(isLoading, text = "Analyzing with AI...") {
         const overlay = document.getElementById('loading-overlay');
-        if (isLoading) overlay.classList.remove('hidden');
-        else overlay.classList.add('hidden');
+        overlay.querySelector('p').innerText = text;
+        overlay.className = isLoading ? '' : 'hidden';
     }
 };
-
-// Initialize app
 document.addEventListener('DOMContentLoaded', () => app.init());

@@ -1,518 +1,232 @@
-"""
-Skill Match Hub — FastAPI Backend
-Consolidates HR + Seeker matching pipelines into a single web-ready API.
-"""
 import os
-import re
 import json
-import time
-import asyncio
-import torch
+import logging
+import faiss
 import numpy as np
-import pdfplumber
-import io
-from pathlib import Path
-from groq import Groq
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from typing import List, Optional, Dict, Any
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
-from transformers import AutoTokenizer, AutoModel
+from sentence_transformers import SentenceTransformer
+from groq import Groq
 from dotenv import load_dotenv
 
-# ── Load .env ─────────────────────────────────────────────────────────────────
-BASE_DIR = Path(__file__).resolve().parent
-load_dotenv(BASE_DIR / ".env")
+# Load environment variables
+load_dotenv()
 
-# ── Config ────────────────────────────────────────────────────────────────────
-# Source data (kept in the repository)
-REPO_DATA_DIR = BASE_DIR / "full_code"
-RESUME_META_PATH = REPO_DATA_DIR / "resume_metadata.json"
-JOB_CHUNKS_PATH = REPO_DATA_DIR / "job_description_chunks.json"
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Embedding / LLM config
-HF_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-LLM_MODEL = "llama-3.3-70b-versatile"
-TOP_K_RECRUITER = 20
-TOP_K_SEEKER = 5
-MAX_TOKENS = 256
+# Initialize FastAPI app
+app = FastAPI(title="Skill Match Hub", description="AI-Powered Job Matching Platform")
 
-# ── FastAPI app ───────────────────────────────────────────────────────────────
-app = FastAPI(title="Skill Match Hub")
+# Paths to data
+DATA_DIR = "data"
+RESUME_INDEX_PATH = os.path.join(DATA_DIR, "resume_faiss.index")
+RESUME_METADATA_PATH = os.path.join(DATA_DIR, "resume_metadata.json")
+JOB_INDEX_PATH = os.path.join(DATA_DIR, "rag_vector_index.faiss")
+JOB_METADATA_PATH = os.path.join(DATA_DIR, "job_description_chunks_metadata.json")
 
-# ── Global state ──────────────────────────────────────────────────────────────
-# Loaded data
+# Global variables for models and data
+embedding_model = None
+resume_index = None
 resume_metadata = []
+job_index = None
 job_metadata = []
-
-# Precomputed embeddings (computed once, then reused for searches)
-resume_embeddings = None
-job_embeddings = None
-
-# Model / clients
-tokenizer = None
-embed_model = None
 groq_client = None
-device = "cpu"
 
-# Load state
-data_loaded = False
+# Models
+class SearchRequest(BaseModel):
+    query: str
+    top_k: int = 5
+
+class SearchResult(BaseModel):
+    id: str
+    score: float
+    content: str
+    metadata: Dict[str, Any]
+    llm_analysis: Optional[str] = None
 
-
-# ── Request / Response models ─────────────────────────────────────────────────
-class RecruiterRequest(BaseModel):
-    job_description: str
-
-
-class SeekerRequest(BaseModel):
-    resume_text: str
-
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-def mean_pooling(model_output, attention_mask):
-    token_embeddings = model_output.last_hidden_state
-    mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
-    return torch.sum(token_embeddings * mask_expanded, dim=1) / torch.clamp(
-        mask_expanded.sum(dim=1), min=1e-9
-    )
-
-
-def embed_text(text: str) -> np.ndarray:
-    encoded = tokenizer(
-        text,
-        truncation=True,
-        padding=True,
-        max_length=MAX_TOKENS,
-        return_tensors="pt",
-    ).to(device)
-
-    with torch.no_grad():
-        output = embed_model(**encoded)
-        embedding = mean_pooling(output, encoded["attention_mask"])
-
-    vec = embedding.squeeze().cpu().numpy().astype("float32")
-    norm = np.linalg.norm(vec)
-    if norm > 0:
-        vec = vec / norm
-    return vec.reshape(1, -1)
-
-
-def clean_text(text: str) -> str:
-    return " ".join(text.split()).replace("\x00", "").lower()
-
-
-def extract_text_from_pdf(file_bytes: bytes) -> str:
-    """Extract text from PDF file bytes."""
-    text = ""
-    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-        for page in pdf.pages:
-            t = page.extract_text()
-            if t:
-                text += t + "\n"
-    return text.strip()
-
-
-def extract_text_from_txt(file_bytes: bytes) -> str:
-    """Extract text from TXT file bytes."""
-    # Try UTF-8 first, fall back to latin-1
-    try:
-        return file_bytes.decode("utf-8").strip()
-    except UnicodeDecodeError:
-        return file_bytes.decode("latin-1").strip()
-
-
-def extract_text_from_file(file_bytes: bytes, filename: str) -> str:
-    """Extract text from PDF or TXT file."""
-    ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
-    if ext == "pdf":
-        return extract_text_from_pdf(file_bytes)
-    elif ext in ("txt", "text"):
-        return extract_text_from_txt(file_bytes)
-    else:
-        raise ValueError(f"Unsupported file type: .{ext}. Please upload a PDF or TXT file.")
-
-
-def extract_experience_from_jd(text: str) -> float:
-    match = re.search(r"(\d+(\.\d+)?)\s*\+?\s*years", text, re.IGNORECASE)
-    return float(match.group(1)) if match else 0.0
-
-
-def extract_skills_from_jd(text: str) -> set:
-    stop_words = {
-        "experience",
-        "years",
-        "knowledge",
-        "required",
-        "skills",
-        "ability",
-        "good",
-        "strong",
-        "hands",
-        "working",
-    }
-    words = set(re.findall(r"[a-zA-Z]{3,}", text.lower()))
-    return words - stop_words
-
-
-# ── Recruiter pipeline ────────────────────────────────────────────────────────
-def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
-    if np.linalg.norm(a) == 0 or np.linalg.norm(b) == 0:
-        return 0.0
-    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
-
-
-def search_resumes(query_vec: np.ndarray, top_k=TOP_K_RECRUITER):
-    # Simple nearest-neighbors search over precomputed resume embeddings.
-    scores = [cosine_similarity(query_vec, vec) for vec in resume_embeddings]
-    ranked = sorted(enumerate(scores), key=lambda x: x[1], reverse=True)[:top_k]
-
-    candidates = []
-    for idx, score in ranked:
-        entry = resume_metadata[idx]
-        meta = entry.get("metadata", {})
-        candidates.append({
-            "semantic_score": score,
-            "name": meta.get("name", "Unknown"),
-            "email": meta.get("email", "Unknown"),
-            "skills": meta.get("skills", []),
-            "experience_years": meta.get("experience_years", 0.0),
-            "internship_years": meta.get("internship_years", 0.0),
-            "total_experience_years": meta.get("total_experience_years", 0.0),
-            "filename": entry.get("filename", "Unknown"),
-        })
-    return candidates
-
-
-def match_and_rank(candidates, jd_skills, jd_experience):
-    # Keep the existing ranking logic (semantic + skills), but the semantic score comes from cosine similarity.
-    results = []
-    for c in candidates:
-        if jd_experience > 0 and c["experience_years"] < jd_experience:
-            continue
-
-        resume_skills = [s.lower() for s in c["skills"]]
-        matched = [s for s in resume_skills if any(jd in s for jd in jd_skills)]
-
-        if not matched:
-            continue
-
-        skill_score = len(matched) / max(len(resume_skills), 1)
-        final_score = 0.7 * c["semantic_score"] + 0.3 * skill_score
-        c["matched_skills"] = matched
-        c["final_score"] = round(final_score, 4)
-        results.append(c)
-
-    return sorted(results, key=lambda x: x["final_score"], reverse=True)
-
-
-def hr_evaluation(candidate: dict) -> str:
-    prompt = f"""You are an HR evaluator.
-
-Candidate Information (trusted):
-Name: {candidate.get("name")}
-Email: {candidate.get("email")}
-Experience Years: {candidate.get("experience_years")}
-Internship Years: {candidate.get("internship_years")}
-Total Experience: {candidate.get("total_experience_years")}
-Skills: {", ".join(candidate.get("skills", []))}
-Matched Skills: {", ".join(candidate.get("matched_skills", []))}
-
-Evaluate ONLY:
-1. Candidate Summary
-2. Strengths
-3. Skill Gaps
-4. Hiring Recommendation (Hire / Consider / Reject)
-
-Do NOT hallucinate."""
-
-    try:
-        response = groq_client.chat.completions.create(
-            model=LLM_MODEL,
-            messages=[
-                {"role": "system", "content": "You are a strict HR analyst."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3,
-            max_tokens=400
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"LLM evaluation unavailable: {str(e)}"
-
-
-# ── Seeker pipeline ───────────────────────────────────────────────────────────
-
-def search_jobs(query_vec: np.ndarray, top_k=TOP_K_SEEKER):
-    # Simple cosine similarity search over job chunks.
-    scores = [cosine_similarity(query_vec, vec) for vec in job_embeddings]
-    ranked = sorted(enumerate(scores), key=lambda x: x[1], reverse=True)[:top_k]
-
-    results = []
-    for idx, score in ranked:
-        entry = job_metadata[idx]
-        results.append({
-            "similarity_score": score,
-            "text": entry.get("text", ""),
-            "metadata": entry.get("metadata", {}),
-        })
-    return results
-
-
-def seeker_analysis(job_match: dict) -> str:
-    md = job_match.get("metadata", {})
-    company = md.get("company", "Not provided")
-    role = md.get("job_title", "Not provided")
-    location = md.get("location", "Not provided")
-
-    prompt = f"""You are a career advisor.
-
-Company Name: {company}
-Job Role: {role}
-Location: {location}
-
-Job Description (supporting context only):
-{job_match.get("text", "")[:1000]}
-
-Based on the job details above, provide:
-1. A brief role summary
-2. Key requirements
-3. Why this could be a good match
-4. Tips to strengthen application
-
-Be concise and helpful."""
-
-    try:
-        response = groq_client.chat.completions.create(
-            model=LLM_MODEL,
-            messages=[
-                {"role": "system", "content": "You are a helpful career advisor."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3,
-            max_tokens=400
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"LLM analysis unavailable: {str(e)}"
-
-
-# ── Core search logic (shared by text and file endpoints) ─────────────────────
-def run_recruiter_search(jd_text: str) -> dict:
-    if not data_loaded:
-        raise HTTPException(status_code=503, detail="Data not loaded yet. Please try again in a moment.")
-    if not jd_text:
-        raise HTTPException(status_code=400, detail="Job description cannot be empty.")
-
-    t0 = time.time()
-
-    jd_clean = clean_text(jd_text)
-    jd_experience = extract_experience_from_jd(jd_clean)
-    jd_skills = extract_skills_from_jd(jd_clean)
-    jd_vector = embed_text(jd_clean)
-
-    candidates = search_resumes(jd_vector)
-    ranked = match_and_rank(candidates, jd_skills, jd_experience)
-
-    results = []
-    for cand in ranked[:6]:
-        evaluation = hr_evaluation(cand)
-        cand["llm_evaluation"] = evaluation
-        results.append(cand)
-
-    elapsed = round(time.time() - t0, 2)
-    print(f"[Recruiter] {len(results)} candidates matched in {elapsed}s")
-
-    return {
-        "candidates": results,
-        "total_found": len(ranked),
-        "elapsed_seconds": elapsed
-    }
-
-
-def run_seeker_search(resume_text: str) -> dict:
-    if not data_loaded:
-        raise HTTPException(status_code=503, detail="Data not loaded yet. Please try again in a moment.")
-    if not resume_text:
-        raise HTTPException(status_code=400, detail="Resume text cannot be empty.")
-
-    t0 = time.time()
-
-    resume_vector = embed_text(resume_text)
-    matches = search_jobs(resume_vector)
-
-    results = []
-    for match in matches[:5]:
-        analysis = seeker_analysis(match)
-        md = match.get("metadata", {})
-        results.append({
-            "similarity_score": match["similarity_score"],
-            "job_title": md.get("job_title", "Unknown"),
-            "company": md.get("company", "Unknown"),
-            "location": md.get("location", "Unknown"),
-            "description_preview": match["text"][:300],
-            "llm_analysis": analysis
-        })
-
-    elapsed = round(time.time() - t0, 2)
-    print(f"[Seeker] {len(results)} jobs matched in {elapsed}s")
-
-    return {
-        "jobs": results,
-        "elapsed_seconds": elapsed
-    }
-
-
-def _update_building_state():
-    """No-op: indexing is removed; we always use in-memory embeddings."""
-    return
-
-
-def load_data_and_embeddings():
-    """Load metadata and precompute embeddings for fast in-memory search."""
-    global resume_metadata, job_metadata, resume_embeddings, job_embeddings, data_loaded
-
-    # Load metadata JSON
-    if os.path.exists(RESUME_META_PATH):
-        with open(RESUME_META_PATH, "r", encoding="utf-8") as f:
-            resume_metadata = json.load(f)
-    else:
-        resume_metadata = []
-
-    if JOB_CHUNKS_PATH.exists():
-        with open(JOB_CHUNKS_PATH, "r", encoding="utf-8") as f:
-            job_metadata = json.load(f)
-    else:
-        job_metadata = []
-
-    # Precompute embeddings once for fast search
-    empty_vec = embed_text("").squeeze().astype("float32")
-
-    resume_embeddings = []
-    for entry in resume_metadata:
-        text = entry.get("text", "")
-        if not text:
-            resume_embeddings.append(empty_vec)
-            continue
-        resume_embeddings.append(embed_text(clean_text(text)).squeeze().astype("float32"))
-
-    job_embeddings = []
-    for entry in job_metadata:
-        text = entry.get("text", "")
-        if not text:
-            job_embeddings.append(empty_vec)
-            continue
-        job_embeddings.append(embed_text(clean_text(text)).squeeze().astype("float32"))
-
-    data_loaded = True
-
-
-# ── Startup ───────────────────────────────────────────────────────────────────
 @app.on_event("startup")
-async def startup():
-    global tokenizer, embed_model, groq_client, device
+async def startup_event():
+    global embedding_model, resume_index, resume_metadata, job_index, job_metadata, groq_client
+    
+    logger.info("Loading embedding model...")
+    # Use the same model as in vectorization scripts
+    embedding_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+    
+    logger.info("Loading FAISS indices and metadata...")
+    
+    # Load Resume Data (for Recruiter Search)
+    if os.path.exists(RESUME_INDEX_PATH) and os.path.exists(RESUME_METADATA_PATH):
+        resume_index = faiss.read_index(RESUME_INDEX_PATH)
+        with open(RESUME_METADATA_PATH, 'r', encoding='utf-8') as f:
+            resume_metadata = json.load(f)
+        logger.info(f"Loaded resume index with {resume_index.ntotal} vectors")
+    else:
+        logger.warning(f"Resume index or metadata not found at {RESUME_INDEX_PATH} / {RESUME_METADATA_PATH}")
 
-    # Groq client
+    # Load Job Data (for Seeker Search)
+    if os.path.exists(JOB_INDEX_PATH) and os.path.exists(JOB_METADATA_PATH):
+        job_index = faiss.read_index(JOB_INDEX_PATH)
+        with open(JOB_METADATA_PATH, 'r', encoding='utf-8') as f:
+            job_metadata = json.load(f)
+        logger.info(f"Loaded job index with {job_index.ntotal} vectors")
+    else:
+        logger.warning(f"Job index or metadata not found at {JOB_INDEX_PATH} / {JOB_METADATA_PATH}")
+
+    # Initialize Groq Client
     api_key = os.getenv("GROQ_API_KEY")
-    if not api_key:
-        print("WARNING: GROQ_API_KEY not set. LLM calls will fail.")
-    groq_client = Groq(api_key=api_key or "")
-
-    # Device
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"Using device: {device}")
-
-    # Embedding model
-    print("Loading embedding model...")
-    tokenizer = AutoTokenizer.from_pretrained(HF_MODEL_NAME)
-    embed_model = AutoModel.from_pretrained(HF_MODEL_NAME).to(device)
-    embed_model.eval()
-    print("Embedding model ready.")
-
-    # Load data + embeddings in background
-    asyncio.create_task(asyncio.to_thread(load_data_and_embeddings))
-
-
-# ── API routes: TEXT input ────────────────────────────────────────────────────
-@app.post("/api/recruiter/search")
-async def recruiter_search(req: RecruiterRequest):
-    return run_recruiter_search(req.job_description.strip())
-
-
-@app.post("/api/seeker/search")
-async def seeker_search(req: SeekerRequest):
-    return run_seeker_search(req.resume_text.strip())
-
-
-# ── API routes: FILE upload (PDF / TXT) ───────────────────────────────────────
-@app.post("/api/recruiter/upload")
-async def recruiter_upload(file: UploadFile = File(...)):
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="No file provided.")
-
-    file_bytes = await file.read()
-    if len(file_bytes) > 10 * 1024 * 1024:  # 10MB limit
-        raise HTTPException(status_code=400, detail="File too large (max 10MB).")
-
-    try:
-        text = extract_text_from_file(file_bytes, file.filename)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception:
-        raise HTTPException(status_code=400, detail="Failed to read file. Please check the file format.")
-
-    if not text.strip():
-        raise HTTPException(status_code=400, detail="Could not extract any text from the file.")
-
-    return run_recruiter_search(text)
-
-
-@app.post("/api/seeker/upload")
-async def seeker_upload(file: UploadFile = File(...)):
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="No file provided.")
-
-    file_bytes = await file.read()
-    if len(file_bytes) > 10 * 1024 * 1024:  # 10MB limit
-        raise HTTPException(status_code=400, detail="File too large (max 10MB).")
-
-    try:
-        text = extract_text_from_file(file_bytes, file.filename)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception:
-        raise HTTPException(status_code=400, detail="Failed to read file. Please check the file format.")
-
-    if not text.strip():
-        raise HTTPException(status_code=400, detail="Could not extract any text from the file.")
-
-    return run_seeker_search(text)
-
+    if api_key:
+        groq_client = Groq(api_key=api_key)
+        logger.info("Groq client initialized")
+    else:
+        logger.warning("GROQ_API_KEY not found in environment variables. LLM features will be disabled.")
 
 @app.get("/api/health")
-async def health():
+async def health_check():
     return {
-        "status": "ok",
-        "data_loaded": data_loaded,
-        "resume_count": len(resume_metadata),
-        "job_count": len(job_metadata),
+        "status": "healthy",
+        "resume_index_loaded": resume_index is not None,
+        "job_index_loaded": job_index is not None,
+        "groq_client_loaded": groq_client is not None
     }
 
+def get_embedding(text: str) -> np.ndarray:
+    # Normalize embeddings to match training (L2 norm)
+    embedding = embedding_model.encode(text, normalize_embeddings=True)
+    return np.array([embedding]).astype("float32")
 
-@app.post("/api/rebuild-data")
-async def rebuild_data():
-    """Trigger a background reload of metadata + embeddings."""
-    if data_loaded:
-        return {"status": "ok", "message": "Data already loaded."}
+def generate_llm_analysis(prompt: str) -> str:
+    if not groq_client:
+        return "LLM analysis unavailable (GROQ_API_KEY missing)."
+    
+    try:
+        completion = groq_client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "You are an expert HR AI assistant. Be concise, professional, and highlight key matches and gaps."},
+                {"role": "user", "content": prompt}
+            ],
+            model="llama-3.3-70b-versatile",
+            temperature=0.1,
+            max_tokens=500,
+        )
+        return completion.choices[0].message.content
+    except Exception as e:
+        logger.error(f"Groq API error: {e}")
+        return f"Error generating analysis: {str(e)}"
 
-    asyncio.create_task(asyncio.to_thread(load_data_and_embeddings))
-    return {"status": "ok", "message": "Data load started."}
+@app.post("/api/recruiter/search", response_model=List[SearchResult])
+async def recruiter_search(request: SearchRequest):
+    """
+    Recruiter pastes a JD -> Search Resumes
+    """
+    if not resume_index:
+        raise HTTPException(status_code=503, detail="Resume index not loaded")
 
+    # 1. Embed query (JD)
+    query_vector = get_embedding(request.query)
 
-# ── Serve frontend ───────────────────────────────────────────────────────────
-STATIC_DIR = str(BASE_DIR / "static")
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    # 2. Search FAISS
+    scores, indices = resume_index.search(query_vector, request.top_k)
+    
+    results = []
+    candidates_context = []
 
+    for score, idx in zip(scores[0], indices[0]):
+        if idx == -1: continue # invalid index
+        
+        meta = resume_metadata[idx]
+        candidate_text = meta.get("text", "")
+        # Fallback for name if missing in deeper metadata
+        candidate_name = meta.get("metadata", {}).get("name", "Unknown Candidate")
+        
+        results.append(SearchResult(
+            id=str(idx),
+            score=float(score),
+            content=candidate_text[:500] + "...", # Truncate for display
+            metadata=meta.get("metadata", {}),
+            llm_analysis=None # Will fill later
+        ))
+        
+        candidates_context.append(f"Candidate: {candidate_name}\nScore: {score:.2f}\nProfile: {candidate_text}\n---")
 
-@app.get("/")
-async def root():
-    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+    # 3. LLM Evaluation (Batch or per-item? Let's do a quick summary for the top result or per-item short analysis)
+    # For a better UX, let's analyze the top match specifically or provide a comparative summary.
+    # The requirement implies "evaluation on top results". Let's do a quick analysis for each of the top 3.
+    
+    if groq_client:
+        for i, res in enumerate(results[:3]): # Analyze top 3 only to save tokens/time
+            prompt = f"""
+            Job Description provided by Recruiter:
+            "{request.query[:1000]}..."
+
+            Candidate Profile:
+            "{candidates_context[i]}"
+
+            Analyze why this candidate is a good match or what is missing. 3 bullet points max.
+            """
+            res.llm_analysis = generate_llm_analysis(prompt)
+
+    return results
+
+@app.post("/api/seeker/search", response_model=List[SearchResult])
+async def seeker_search(request: SearchRequest):
+    """
+    Job Seeker pastes Resume -> Search Jobs
+    """
+    if not job_index:
+        raise HTTPException(status_code=503, detail="Job index not loaded")
+
+    # 1. Embed query (Resume)
+    query_vector = get_embedding(request.query)
+
+    # 2. Search FAISS
+    scores, indices = job_index.search(query_vector, request.top_k)
+    
+    results = []
+    jobs_context = []
+
+    for score, idx in zip(scores[0], indices[0]):
+        if idx == -1: continue
+        
+        meta = job_metadata[idx]
+        job_text = meta.get("text", "")
+        job_title = meta.get("metadata", {}).get("job_title", "Unknown Role")
+        company = meta.get("metadata", {}).get("company", "Unknown Company")
+
+        results.append(SearchResult(
+            id=str(idx),
+            score=float(score),
+            content=job_text[:500] + "...",
+            metadata=meta.get("metadata", {}),
+            llm_analysis=None
+        ))
+        
+        jobs_context.append(f"Job: {job_title} at {company}\nScore: {score:.2f}\nDescription: {job_text}\n---")
+
+    # 3. LLM Advice
+    if groq_client:
+        for i, res in enumerate(results[:3]):
+            prompt = f"""
+            Candidate Resume Summary:
+            "{request.query[:1000]}..."
+
+            Job Opening:
+            "{jobs_context[i]}"
+
+            Why is this job a good fit for the candidate? What specific skill should they highlight? 3 bullet points max.
+            """
+            res.llm_analysis = generate_llm_analysis(prompt)
+
+    return results
+
+# Serve static files (Frontend)
+# We mount this last so API routes take precedence
+app.mount("/", StaticFiles(directory="static", html=True), name="static")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

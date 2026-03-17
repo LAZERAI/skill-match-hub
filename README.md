@@ -1,119 +1,54 @@
----
-title: Skill Match Hub
-emoji: 💼
-colorFrom: blue
-colorTo: indigo
-sdk: docker
-app_port: 7860
-pinned: false
-license: mit
----
+# Skill Match Hub — AI-Powered Job Matching
 
-# Skill Match Hub
+**Skill Match Hub** is a next-generation recruitment platform that uses semantic search and Large Language Models (LLMs) to connect talent with opportunities. 
 
-<!-- Trigger rebuild: updated at runtime -->
+Powered by **Groq (Llama 3.3)** and **FAISS**, this platform goes beyond keyword matching to understand the context and meaning of resumes and job descriptions.
 
-AI-powered job matching platform using **Llama 3.3 70B** and **FAISS** vector search to connect recruiters with top candidates and job seekers with the best opportunities.
+## 🚀 Features
 
-Built with FastAPI + vanilla HTML/CSS/JS frontend.
+- **Semantic Match Evaluation**: Uses Sentence Transformers to understand deep skill alignment.
+- **AI Analysis for Recruiters**: LLM-driven evaluation of candidates' fit for a role.
+- **Career Advice for Seekers**: Personalized insights on why a job fits and how to prepare.
+- **Modern UI**: Clean, LinkedIn-inspired interface with responsive design and theme support (Dark/Light).
+- **Consolidated Backend**: Fast and efficient FastAPI server.
 
----
+## 🛠️ Tech Stack
 
-## Features
+- **Frontend**: Vanilla JS, HTML5, CSS3 (Custom properties for theming).
+- **Backend**: FastAPI, Uvicorn.
+- **AI/ML**: FAISS, Sentence Transformers (all-MiniLM-L6-v2), Groq API (Llama 3.3).
+- **Deployment**: Docker, HuggingFace Spaces.
 
-- **Dual-role interface** — Recruiter and Job Seeker modes
-- **Semantic matching** — FAISS vector search with sentence-transformers (MiniLM-L6-v2)
-- **AI evaluation** — Llama 3.3 70B via Groq for candidate assessment and career analysis
-- **Light/Dark theme** — LinkedIn-inspired design with theme toggle
-- **Responsive** — Works on desktop and mobile
+## 📦 Setup & Installation
 
----
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/LAZERAI/skill-match-hub
+   cd skill-match-hub
+   ```
 
-## How It Works
+2. **Install dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-### Recruiter Flow
-1. Paste a job description
-2. System embeds JD → searches resume FAISS index
-3. Matches & ranks candidates by skill overlap + semantic similarity
-4. Llama 3.3 evaluates each candidate (Summary, Strengths, Gaps, Recommendation)
+3. **Configure environment**:
+   Create a `.env` file and add your Groq API key:
+   ```env
+   GROQ_API_KEY=your_groq_api_key_here
+   ```
 
-### Job Seeker Flow
-1. Paste your resume text
-2. System embeds resume → searches job description FAISS index
-3. Returns top matching positions
-4. Llama 3.3 provides career analysis for each match
+4. **Run the application**:
+   ```bash
+   uvicorn app:app --reload
+   ```
+   Open `http://localhost:8000` in your browser.
 
----
+## 👨‍💻 Credits
 
-## Stack
+- **Original Logic & Data**: Rijin Shaji ([@Rijin-shaji](https://github.com/Rijin-shaji))
+- **Frontend & Integration**: LAZERAI
 
-- Python 3.11+
-- FastAPI + Uvicorn
-- FAISS for vector search
-- sentence-transformers for embeddings
-- Groq API (Llama 3.3 70B)
-- Vanilla HTML/CSS/JS frontend
+## 📄 License
 
----
-
-## Getting Started
-
-```bash
-git clone https://github.com/LAZERAI/skill-match-hub.git
-cd skill-match-hub
-python -m venv .venv
-.venv\Scripts\activate    # Windows
-pip install -r requirements.txt
-```
-
-Create a `.env` file:
-
-```
-GROQ_API_KEY=your_key_here
-```
-
-Get a free key at [console.groq.com](https://console.groq.com)
-
-Run:
-
-```bash
-uvicorn app:app --reload --port 8000
-```
-
-Open [http://localhost:8000](http://localhost:8000)
-
----
-
-## Project Structure
-
-```
-├── app.py                              # FastAPI backend
-├── static/
-│   ├── index.html                      # Frontend UI
-│   ├── style.css                       # LinkedIn-themed styles
-│   └── script.js                       # Frontend logic
-├── full_code/
-│   ├── resume_faiss.index              # Resume vector index
-│   ├── resume_metadata.json            # Resume metadata
-│   ├── rag_vector_index.faiss          # Job description vector index
-│   ├── job_description_chunks_metadata.json
-│   └── ...                             # Original pipeline scripts
-├── requirements.txt
-├── .env                                # API key (not committed)
-└── README.md
-```
-
----
-
-## Contributors
-
-This project is built collaboratively. Special thanks to:
-
-- **Rijin Shaji** — core backend pipeline, data processing, and architecture (original project author)
-- **LAZERAI** — frontend UI, integration, and deployment
-
-For full contributor details, see [CONTRIBUTORS.md](CONTRIBUTORS.md).
-
-## License
-
-MIT
+This project is licensed under the MIT License - see the LICENSE file for details.

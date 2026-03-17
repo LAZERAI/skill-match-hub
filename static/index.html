@@ -1,262 +1,103 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Skill Match Hub — AI-Powered Job Matching Platform connecting recruiters with top candidates and job seekers with perfect opportunities.">
-  <title>Skill Match Hub — AI Job Matching</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Skill Match Hub | AI Recruitment Platform</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-
-  <!-- ═══════════ LANDING / ROLE SELECT ═══════════ -->
-  <div id="landingView" class="view active">
-    <div class="landing-container">
-      <!-- Theme Toggle (floating) -->
-      <button class="theme-fab" onclick="toggleTheme()" id="themeFab" title="Toggle theme">
-        <span id="fabIcon">🌙</span>
-      </button>
-
-      <!-- Hero Area -->
-      <div class="landing-hero">
-        <div class="landing-logo">
-          <div class="logo-mark">
-            <svg width="42" height="42" viewBox="0 0 42 42" fill="none">
-              <rect width="42" height="42" rx="12" fill="url(#logoGrad)"/>
-              <path d="M12 21L18 27L30 15" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-              <defs><linearGradient id="logoGrad" x1="0" y1="0" x2="42" y2="42"><stop stop-color="#0A66C2"/><stop offset="1" stop-color="#004182"/></linearGradient></defs>
-            </svg>
-          </div>
-          <div>
-            <h1 class="logo-title">Skill Match Hub</h1>
-            <p class="logo-sub">AI-Powered Job Matching Platform</p>
-          </div>
+    <nav class="navbar">
+        <div class="logo">
+            <i class="fa-solid fa-network-wired"></i>
+            <span>Skill Match Hub</span>
         </div>
-
-        <p class="landing-desc">
-          Powered by <strong>Llama 3.3</strong> and semantic vector search, 
-          we intelligently connect the right talent with the right opportunities.
-        </p>
-
-        <div class="role-cards">
-          <button class="role-card" onclick="selectRole('recruiter')" id="recruiterCard">
-            <div class="role-icon">
-              <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-                <circle cx="24" cy="16" r="8" stroke="currentColor" stroke-width="2.5"/>
-                <path d="M8 40C8 32.268 14.268 26 22 26H26C33.732 26 40 32.268 40 40" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-                <circle cx="36" cy="16" r="4" stroke="currentColor" stroke-width="2"/>
-                <path d="M38 22C41.314 22 44 24.686 44 28" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-              </svg>
-            </div>
-            <h2 class="role-title">I'm a Recruiter</h2>
-            <p class="role-desc">Paste a job description or upload a PDF/TXT and discover the best-matching candidates from our talent pool, ranked by AI.</p>
-            <span class="role-cta">Find Candidates →</span>
-          </button>
-
-          <button class="role-card" onclick="selectRole('seeker')" id="seekerCard">
-            <div class="role-icon">
-              <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-                <rect x="10" y="6" width="28" height="36" rx="3" stroke="currentColor" stroke-width="2.5"/>
-                <line x1="16" y1="14" x2="32" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                <line x1="16" y1="20" x2="28" y2="20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                <line x1="16" y1="26" x2="30" y2="26" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                <line x1="16" y1="32" x2="24" y2="32" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                <circle cx="35" cy="35" r="7" stroke="currentColor" stroke-width="2.5"/>
-                <line x1="40" y1="40" x2="44" y2="44" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
-              </svg>
-            </div>
-            <h2 class="role-title">I'm a Job Seeker</h2>
-            <p class="role-desc">Paste your resume or upload a PDF/TXT and find the most relevant job openings matched to your skills and experience.</p>
-            <span class="role-cta">Find Jobs →</span>
-          </button>
-        </div>
-
-        <div class="landing-stats">
-          <div class="stat-chip"><span class="stat-num" id="statResumes">—</span> Resumes Indexed</div>
-          <div class="stat-chip"><span class="stat-num" id="statJobs">—</span> Job Listings</div>
-          <div class="stat-chip"><span class="stat-num">Llama 3.3</span> LLM</div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ═══════════ RECRUITER DASHBOARD ═══════════ -->
-  <div id="recruiterView" class="view">
-    <div class="dashboard">
-      <header class="topbar">
-        <div class="topbar-left">
-          <button class="back-btn" onclick="goHome()" title="Back to Home">
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M12 4L6 10L12 16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
-          <div class="topbar-brand">
-            <h1>Skill Match Hub</h1>
-            <span class="topbar-badge recruiter-badge">Recruiter</span>
-          </div>
-        </div>
-        <div class="topbar-right">
-          <button class="icon-btn" onclick="rebuildData()" title="Reload data">
-            <span id="rebuildIcon">🔁</span>
-          </button>
-          <button class="icon-btn" onclick="exportHiredCandidates()" title="Export hired list">
-            <span id="exportIcon">📥</span>
-          </button>
-        </div>
-      </header>
-      <div id="recruiterStatusBar" class="index-status-bar" hidden>
-        <span class="status-text">Preparing candidate index…</span>
-        <button class="secondary-btn" onclick="checkIndexStatus(2, 15)">Refresh</button>
-      </div>
-
-      <main class="dashboard-content">
-        <div class="recruiter-grid">
-          <div class="recruiter-input-panel">
-            <div class="input-section">
-              <!-- Text input mode -->
-              <div id="recruiterTextMode" class="input-mode active">
-                <h2 class="section-title">
-                  <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><rect x="2" y="2" width="18" height="18" rx="3" stroke="currentColor" stroke-width="1.8"/><line x1="6" y1="7" x2="16" y2="7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="6" y1="11" x2="14" y2="11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="6" y1="15" x2="12" y2="15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-                  Paste Job Description
-                </h2>
-                <textarea id="jdInput" class="text-input" rows="8" placeholder="Paste the complete job description here... Include required skills, experience level, responsibilities, and qualifications for best results."></textarea>
-                <div class="input-actions">
-                  <span class="char-count"><span id="jdCharCount">0</span> characters</span>
-                  <div class="button-group">
-                    <button class="secondary-btn" onclick="clearRecruiterInput()" id="clearRecruiterBtn">
-                      Clear
-                    </button>
-                    <button class="primary-btn" onclick="searchCandidates()" id="searchCandidatesBtn">
-                      <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="2"/><line x1="12" y1="12" x2="16" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-                      Find Candidates
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <!-- File upload mode -->
-              <div id="recruiterFileMode" class="input-mode">
-                <h2 class="section-title">
-                  <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M4 3h9l5 5v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2z" stroke="currentColor" stroke-width="1.8"/><path d="M13 3v5h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-                  Upload Job Description
-                </h2>
-                <div class="file-drop-zone" id="recruiterDropZone" onclick="document.getElementById('recruiterFileInput').click()">
-                  <input type="file" id="recruiterFileInput" accept=".pdf,.txt,.text" hidden onchange="handleFileSelect('recruiter', this)">
-                  <div class="drop-icon">📄</div>
-                  <div class="drop-text">Drop your PDF or TXT file here</div>
-                  <div class="drop-sub">or click to browse · PDF, TXT supported</div>
-                  <div class="drop-file-name" id="recruiterFileName"></div>
-                </div>
-                <div class="input-actions">
-                  <span class="char-count" id="recruiterFileInfo"></span>
-                  <button class="primary-btn" onclick="uploadRecruiterFile()" id="uploadRecruiterBtn" disabled>
-                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="2"/><line x1="12" y1="12" x2="16" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-                    Find Candidates
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="recruiter-results-panel">
-            <div id="recruiterResults" class="results-area"></div>
-          </div>
-        </div>
-      </main>
-    </div>
-  </div>
-
-  <!-- ═══════════ SEEKER DASHBOARD ═══════════ -->
-  <div id="seekerView" class="view">
-    <div class="dashboard">
-      <header class="topbar">
-        <div class="topbar-left">
-          <button class="back-btn" onclick="goHome()" title="Back to Home">
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M12 4L6 10L12 16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
-          <div class="topbar-brand">
-            <h1>Skill Match Hub</h1>
-            <span class="topbar-badge seeker-badge">Job Seeker</span>
-          </div>
-        </div>
-        <div class="topbar-right">
-          <button class="icon-btn" onclick="toggleTheme()" title="Toggle theme">
-            <span id="topThemeIcon2">🌙</span>
-          </button>
-        </div>
-      </header>
-      <div id="seekerStatusBar" class="index-status-bar" hidden>
-        <span class="status-text">Preparing job index…</span>
-        <button class="secondary-btn" onclick="checkIndexStatus(2, 15)">Refresh</button>
-      </div>
-
-      <main class="dashboard-content">
-        <!-- Input mode tabs -->
-        <div class="input-section">
-          <div class="input-tabs">
-            <button class="input-tab active" onclick="switchInputMode('seeker', 'text', this)" id="seekerTextTab">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/><line x1="5" y1="5" x2="11" y2="5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><line x1="5" y1="8" x2="9" y2="8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><line x1="5" y1="11" x2="10" y2="11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
-              Paste Text
+        <div class="nav-controls">
+            <button id="theme-toggle" class="icon-btn" title="Toggle Theme">
+                <i class="fa-solid fa-moon"></i>
             </button>
-            <button class="input-tab" onclick="switchInputMode('seeker', 'file', this)" id="seekerFileTab">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 2h5.5L13 5.5V13a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.5"/><path d="M9 2v4h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-              Upload File
-            </button>
-          </div>
-
-          <!-- Text input mode -->
-          <div id="seekerTextMode" class="input-mode active">
-            <h2 class="section-title">
-              <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><rect x="3" y="1" width="16" height="20" rx="2" stroke="currentColor" stroke-width="1.8"/><line x1="7" y1="6" x2="15" y2="6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="7" y1="10" x2="13" y2="10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="7" y1="14" x2="14" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-              Paste Your Resume
-            </h2>
-            <textarea id="resumeInput" class="text-input" rows="8" placeholder="Paste your resume text here... Include your skills, work experience, education, and any relevant projects for the best job matches."></textarea>
-            <div class="input-actions">
-              <span class="char-count"><span id="resumeCharCount">0</span> characters</span>
-              <div class="button-group">
-                <button class="secondary-btn" onclick="clearSeekerInput()" id="clearSeekerBtn">
-                  Clear
-                </button>
-                <button class="primary-btn seeker-btn" onclick="searchJobs()" id="searchJobsBtn">
-                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="2"/><line x1="12" y1="12" x2="16" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-                  Find Jobs
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- File upload mode -->
-          <div id="seekerFileMode" class="input-mode">
-            <h2 class="section-title">
-              <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><path d="M4 3h9l5 5v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2z" stroke="currentColor" stroke-width="1.8"/><path d="M13 3v5h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-              Upload Your Resume
-            </h2>
-            <div class="file-drop-zone" id="seekerDropZone" onclick="document.getElementById('seekerFileInput').click()">
-              <input type="file" id="seekerFileInput" accept=".pdf,.txt,.text" hidden onchange="handleFileSelect('seeker', this)">
-              <div class="drop-icon">📄</div>
-              <div class="drop-text">Drop your PDF or TXT file here</div>
-              <div class="drop-sub">or click to browse · PDF, TXT supported</div>
-              <div class="drop-file-name" id="seekerFileName"></div>
-            </div>
-            <div class="input-actions">
-              <span class="char-count" id="seekerFileInfo"></span>
-              <button class="primary-btn seeker-btn" onclick="uploadSeekerFile()" id="uploadSeekerBtn" disabled>
-                <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="2"/><line x1="12" y1="12" x2="16" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-                Find Jobs
-              </button>
-            </div>
-          </div>
         </div>
+    </nav>
 
-        <div id="seekerResults" class="results-area"></div>
-      </main>
+    <main class="container">
+        <!-- View 1: Landing / Role Selection -->
+        <section id="landing-view" class="view active">
+            <div class="hero-text">
+                <h1>Find your perfect match.</h1>
+                <p>AI-powered semantic search connecting talent with opportunity.</p>
+            </div>
+            
+            <div class="role-cards">
+                <div class="card role-card" onclick="app.switchView('recruiter')">
+                    <div class="icon-wrapper recruiter-icon">
+                        <i class="fa-solid fa-briefcase"></i>
+                    </div>
+                    <h2>I'm a Recruiter</h2>
+                    <p>Find top talent by pasting your job description.</p>
+                </div>
+
+                <div class="card role-card" onclick="app.switchView('seeker')">
+                    <div class="icon-wrapper seeker-icon">
+                        <i class="fa-solid fa-user-tie"></i>
+                    </div>
+                    <h2>I'm a Job Seeker</h2>
+                    <p>Find dream jobs by analyzing your resume.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- View 2: Recruiter Dashboard -->
+        <section id="recruiter-view" class="view hidden">
+            <div class="dashboard-header">
+                <button class="back-btn" onclick="app.switchView('landing')">
+                    <i class="fa-solid fa-arrow-left"></i> Back
+                </button>
+                <h2>Recruiter Dashboard</h2>
+            </div>
+
+            <div class="search-box">
+                <label for="jd-input">Paste Job Description</label>
+                <textarea id="jd-input" placeholder="e.g. We are looking for a Senior Python Developer with experience in FastAPI and Machine Learning..."></textarea>
+                <button class="primary-btn" onclick="app.searchCandidates()">
+                    <i class="fa-solid fa-search"></i> Find Candidates
+                </button>
+            </div>
+
+            <div id="recruiter-results" class="results-container">
+                <!-- Results will be injected here -->
+            </div>
+        </section>
+
+        <!-- View 3: Seeker Dashboard -->
+        <section id="seeker-view" class="view hidden">
+            <div class="dashboard-header">
+                <button class="back-btn" onclick="app.switchView('landing')">
+                    <i class="fa-solid fa-arrow-left"></i> Back
+                </button>
+                <h2>Job Seeker Dashboard</h2>
+            </div>
+
+            <div class="search-box">
+                <label for="resume-input">Paste Resume / CV Text</label>
+                <textarea id="resume-input" placeholder="e.g. John Doe. Experienced Software Engineer with 5 years in..."></textarea>
+                <button class="primary-btn" onclick="app.searchJobs()">
+                    <i class="fa-solid fa-briefcase"></i> Find Jobs
+                </button>
+            </div>
+
+            <div id="seeker-results" class="results-container">
+                <!-- Results will be injected here -->
+            </div>
+        </section>
+    </main>
+
+    <div id="loading-overlay" class="hidden">
+        <div class="spinner"></div>
+        <p>Analyzing with AI...</p>
     </div>
-  </div>
 
-  <!-- Toast container -->
-  <div id="toastContainer"></div>
-
-  <script src="/static/script.js"></script>
+    <script src="script.js"></script>
 </body>
 </html>

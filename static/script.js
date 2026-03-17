@@ -1,701 +1,195 @@
-/* ═══════════════════════════════════════════════════════════════════════════
-   Skill Match Hub — Frontend Logic
-   ═══════════════════════════════════════════════════════════════════════════ */
+const app = {
+    state: {
+        currentView: 'landing',
+        theme: localStorage.getItem('theme') || 'light'
+    },
 
-// ── DOM refs ─────────────────────────────────────────────────────────────
-const views = {
-  landing: document.getElementById("landingView"),
-  recruiter: document.getElementById("recruiterView"),
-  seeker: document.getElementById("seekerView"),
+    init() {
+        this.applyTheme();
+        document.getElementById('theme-toggle').addEventListener('click', () => this.toggleTheme());
+    },
+
+    switchView(viewName) {
+        // Hide all views
+        document.querySelectorAll('.view').forEach(el => {
+            el.classList.remove('active');
+            setTimeout(() => {
+                if (!el.classList.contains('active')) el.classList.add('hidden');
+            }, 300); // Match CSS transition
+        });
+
+        // Show target view
+        const target = document.getElementById(`${viewName}-view`);
+        target.classList.remove('hidden');
+        
+        // Small delay to allow display:block to apply before opacity transition
+        setTimeout(() => {
+            target.classList.add('active');
+        }, 10);
+
+        this.state.currentView = viewName;
+    },
+
+    toggleTheme() {
+        this.state.theme = this.state.theme === 'light' ? 'dark' : 'light';
+        localStorage.setItem('theme', this.state.theme);
+        this.applyTheme();
+    },
+
+    applyTheme() {
+        document.documentElement.setAttribute('data-theme', this.state.theme);
+        const icon = document.querySelector('#theme-toggle i');
+        if (this.state.theme === 'dark') {
+            icon.classList.remove('fa-moon');
+            icon.classList.add('fa-sun');
+        } else {
+            icon.classList.remove('fa-sun');
+            icon.classList.add('fa-moon');
+        }
+    },
+
+    async searchCandidates() {
+        const query = document.getElementById('jd-input').value;
+        if (!query.trim()) return alert("Please enter a job description.");
+
+        this.showLoading(true);
+        try {
+            const response = await fetch('/api/recruiter/search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query: query, top_k: 5 })
+            });
+            
+            if (!response.ok) throw new Error('Search failed');
+            
+            const results = await response.json();
+            this.renderRecruiterResults(results);
+        } catch (err) {
+            console.error(err);
+            alert("Error fetching candidates. Please try again.");
+        } finally {
+            this.showLoading(false);
+        }
+    },
+
+    async searchJobs() {
+        const query = document.getElementById('resume-input').value;
+        if (!query.trim()) return alert("Please enter your resume text.");
+
+        this.showLoading(true);
+        try {
+            const response = await fetch('/api/seeker/search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query: query, top_k: 5 })
+            });
+            
+            if (!response.ok) throw new Error('Search failed');
+            
+            const results = await response.json();
+            this.renderSeekerResults(results);
+        } catch (err) {
+            console.error(err);
+            alert("Error fetching jobs. Please try again.");
+        } finally {
+            this.showLoading(false);
+        }
+    },
+
+    renderRecruiterResults(results) {
+        const container = document.getElementById('recruiter-results');
+        container.innerHTML = '';
+        
+        if (results.length === 0) {
+            container.innerHTML = '<p style="text-align:center; color:var(--text-secondary)">No matching candidates found.</p>';
+            return;
+        }
+
+        results.forEach(res => {
+            const card = document.createElement('div');
+            card.className = 'result-card';
+            
+            // Extract metadata safely
+            const name = res.metadata.name || "Unknown Candidate";
+            const email = res.metadata.email || "No email";
+            const skills = res.metadata.skills ? res.metadata.skills.join(', ') : "Not listed";
+            const exp = res.metadata.total_experience_years || 0;
+
+            let llmHtml = '';
+            if (res.llm_analysis) {
+                // Convert newlines to breaks for basic formatting
+                const analysisText = res.llm_analysis.replace(/\n/g, '<br>');
+                llmHtml = `
+                    <div class="llm-analysis">
+                        <h4><i class="fa-solid fa-robot"></i> AI Analysis</h4>
+                        <p>${analysisText}</p>
+                    </div>
+                `;
+            }
+
+            card.innerHTML = `
+                <div class="result-header">
+                    <h3>${name}</h3>
+                    <span class="score-badge">Match: ${(res.score * 100).toFixed(0)}%</span>
+                </div>
+                <p><strong><i class="fa-solid fa-envelope"></i></strong> ${email}</p>
+                <p><strong><i class="fa-solid fa-briefcase"></i> Exp:</strong> ${exp} years</p>
+                <p><strong><i class="fa-solid fa-code"></i> Skills:</strong> ${skills}</p>
+                <p style="margin-top:0.5rem; color:var(--text-secondary)">${res.content}</p>
+                ${llmHtml}
+            `;
+            container.appendChild(card);
+        });
+    },
+
+    renderSeekerResults(results) {
+        const container = document.getElementById('seeker-results');
+        container.innerHTML = '';
+
+        if (results.length === 0) {
+            container.innerHTML = '<p style="text-align:center; color:var(--text-secondary)">No matching jobs found.</p>';
+            return;
+        }
+
+        results.forEach(res => {
+            const card = document.createElement('div');
+            card.className = 'result-card';
+            
+            const title = res.metadata.job_title || "Unknown Role";
+            const company = res.metadata.company || "Unknown Company";
+            const location = res.metadata.location || "Remote/Unknown";
+
+            let llmHtml = '';
+            if (res.llm_analysis) {
+                 const analysisText = res.llm_analysis.replace(/\n/g, '<br>');
+                llmHtml = `
+                    <div class="llm-analysis">
+                        <h4><i class="fa-solid fa-lightbulb"></i> Career Advice</h4>
+                        <p>${analysisText}</p>
+                    </div>
+                `;
+            }
+
+            card.innerHTML = `
+                <div class="result-header">
+                    <h3>${title}</h3>
+                    <span class="score-badge">Match: ${(res.score * 100).toFixed(0)}%</span>
+                </div>
+                <p><strong><i class="fa-solid fa-building"></i></strong> ${company}</p>
+                <p><strong><i class="fa-solid fa-map-marker-alt"></i></strong> ${location}</p>
+                <p style="margin-top:0.5rem; color:var(--text-secondary)">${res.content}</p>
+                ${llmHtml}
+            `;
+            container.appendChild(card);
+        });
+    },
+
+    showLoading(isLoading) {
+        const overlay = document.getElementById('loading-overlay');
+        if (isLoading) overlay.classList.remove('hidden');
+        else overlay.classList.add('hidden');
+    }
 };
 
-const jdInput = document.getElementById("jdInput");
-const resumeInput = document.getElementById("resumeInput");
-const jdCharCount = document.getElementById("jdCharCount");
-const resumeCharCount = document.getElementById("resumeCharCount");
-const recruiterResults = document.getElementById("recruiterResults");
-const seekerResults = document.getElementById("seekerResults");
-
-// File state
-let recruiterFile = null;
-let seekerFile = null;
-
-// Recruiter candidate state
-let recruiterCandidates = [];
-let recruiterFilter = "all"; // all | open | hired
-let currentRole = null; // 'recruiter' | 'seeker'
-
-const HIRE_STORAGE_KEY = "smh_hired_candidates";
-
-function loadHiredCandidates() {
-  try {
-    const raw = localStorage.getItem(HIRE_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveHiredCandidates() {
-  const hired = recruiterCandidates
-    .filter((c) => c.hired)
-    .map((c) => c.email || c._internalId);
-  localStorage.setItem(HIRE_STORAGE_KEY, JSON.stringify(hired));
-}
-
-// ── Character counters ───────────────────────────────────────────────────
-jdInput.addEventListener("input", () => {
-  jdCharCount.textContent = jdInput.value.length;
-});
-
-resumeInput.addEventListener("input", () => {
-  resumeCharCount.textContent = resumeInput.value.length;
-});
-
-// ── View switching ───────────────────────────────────────────────────────
-function switchView(viewName) {
-  Object.values(views).forEach((v) => v.classList.remove("active"));
-  views[viewName].classList.add("active");
-}
-
-function selectRole(role) {
-  currentRole = role;
-  switchView(role);
-  // Keep the index status updated while on the selected view.
-  checkIndexStatus();
-}
-
-function goHome() {
-  switchView("landing");
-}
-
-// ── Input mode tabs ──────────────────────────────────────────────────────
-function switchInputMode(role, mode, tabEl) {
-  // Update tabs
-  const section = tabEl.closest(".input-section");
-  section.querySelectorAll(".input-tab").forEach((t) => t.classList.remove("active"));
-  tabEl.classList.add("active");
-
-  // Update modes
-  section.querySelectorAll(".input-mode").forEach((m) => m.classList.remove("active"));
-  const modeId = `${role}${mode === "text" ? "Text" : "File"}Mode`;
-  document.getElementById(modeId).classList.add("active");
-}
-
-// ── File handling ────────────────────────────────────────────────────────
-function handleFileSelect(role, input) {
-  const file = input.files[0];
-  if (!file) return;
-
-  const ext = file.name.split(".").pop().toLowerCase();
-  if (!["pdf", "txt", "text"].includes(ext)) {
-    showToast("Please select a PDF or TXT file.", "error");
-    input.value = "";
-    return;
-  }
-
-  if (file.size > 10 * 1024 * 1024) {
-    showToast("File too large (max 10MB).", "error");
-    input.value = "";
-    return;
-  }
-
-  if (role === "recruiter") {
-    recruiterFile = file;
-    document.getElementById("recruiterFileName").textContent = `✓ ${file.name} (${formatSize(file.size)})`;
-    document.getElementById("recruiterDropZone").classList.add("has-file");
-    document.getElementById("uploadRecruiterBtn").disabled = false;
-    document.getElementById("recruiterFileInfo").textContent = file.name;
-  } else {
-    seekerFile = file;
-    document.getElementById("seekerFileName").textContent = `✓ ${file.name} (${formatSize(file.size)})`;
-    document.getElementById("seekerDropZone").classList.add("has-file");
-    document.getElementById("uploadSeekerBtn").disabled = false;
-    document.getElementById("seekerFileInfo").textContent = file.name;
-  }
-}
-
-function formatSize(bytes) {
-  if (bytes < 1024) return bytes + " B";
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
-}
-
-// ── Drag and drop ────────────────────────────────────────────────────────
-["recruiterDropZone", "seekerDropZone"].forEach((id) => {
-  const zone = document.getElementById(id);
-  if (!zone) return;
-  const role = id.startsWith("recruiter") ? "recruiter" : "seeker";
-  const inputId = role === "recruiter" ? "recruiterFileInput" : "seekerFileInput";
-
-  zone.addEventListener("dragover", (e) => {
-    e.preventDefault();
-    zone.classList.add("drag-over");
-  });
-  zone.addEventListener("dragleave", () => zone.classList.remove("drag-over"));
-  zone.addEventListener("drop", (e) => {
-    e.preventDefault();
-    zone.classList.remove("drag-over");
-
-    const file = e.dataTransfer.files[0];
-    if (file) {
-      const input = document.getElementById(inputId);
-      const dt = new DataTransfer();
-      dt.items.add(file);
-      input.files = dt.files;
-      handleFileSelect(role, input);
-    }
-  });
-});
-
-// ── Theme toggle ─────────────────────────────────────────────────────────
-function toggleTheme() {
-  const html = document.documentElement;
-  const current = html.getAttribute("data-theme");
-  const next = current === "dark" ? "light" : "dark";
-  html.setAttribute("data-theme", next);
-  localStorage.setItem("smh-theme", next);
-  updateThemeIcons(next);
-}
-
-function updateThemeIcons(theme) {
-  const icon = theme === "dark" ? "☀️" : "🌙";
-  document.getElementById("fabIcon").textContent = icon;
-
-  const t1 = document.getElementById("topThemeIcon1");
-  const t2 = document.getElementById("topThemeIcon2");
-  if (t1) t1.textContent = icon;
-  if (t2) t2.textContent = icon;
-}
-
-// Load saved theme (default: light)
-(function () {
-  const saved = localStorage.getItem("smh-theme") || "light";
-  document.documentElement.setAttribute("data-theme", saved);
-  updateThemeIcons(saved);
-})();
-
-// ── Load health stats on landing ────────────────────────────────────────
-(async function loadStats() {
-  try {
-    const res = await fetch("/api/health");
-    const data = await res.json();
-
-    // Update the landing stats and status UI
-    document.getElementById("statResumes").textContent = data.data_loaded ? data.resume_count : "loading…";
-    document.getElementById("statJobs").textContent = data.data_loaded ? data.job_count : "loading…";
-    updateIndexStatusUI(data);
-
-    // Keep polling until the data is loaded
-    checkIndexStatus();
-  } catch {
-    // silently fail for stats
-  }
-})();
-
-// ── Recruiter: Search via text ───────────────────────────────────────────
-async function searchCandidates() {
-  const text = jdInput.value.trim();
-  if (!text) {
-    showToast("Please paste a job description first.", "error");
-    return;
-  }
-
-  const btn = document.getElementById("searchCandidatesBtn");
-  btn.disabled = true;
-  showRecruiterLoading();
-
-  try {
-    const res = await fetch("/api/recruiter/search", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ job_description: text }),
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || `Server error ${res.status}`);
-    }
-
-    const data = await res.json();
-    renderCandidates(data);
-  } catch (err) {
-    recruiterResults.innerHTML = `<div class="error-state">⚠ ${escapeHtml(err.message)}</div>`;
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-// ── Recruiter: Search via file upload ────────────────────────────────────
-async function uploadRecruiterFile() {
-  if (!recruiterFile) {
-    showToast("Please select a file first.", "error");
-    return;
-  }
-
-  const btn = document.getElementById("uploadRecruiterBtn");
-  btn.disabled = true;
-  showRecruiterLoading();
-
-  try {
-    const formData = new FormData();
-    formData.append("file", recruiterFile);
-
-    const res = await fetch("/api/recruiter/upload", {
-      method: "POST",
-      body: formData,
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || `Server error ${res.status}`);
-    }
-
-    const data = await res.json();
-    renderCandidates(data);
-  } catch (err) {
-    recruiterResults.innerHTML = `<div class="error-state">⚠ ${escapeHtml(err.message)}</div>`;
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-function showRecruiterLoading() {
-  recruiterResults.innerHTML = `
-    <div class="loading-indicator">
-      <div class="loading-spinner"></div>
-      <div class="loading-text">Searching talent pool...</div>
-      <div class="loading-sub">Embedding JD → FAISS search → LLM evaluation</div>
-    </div>
-  `;
-}
-
-function setRecruiterFilter(filter) {
-  recruiterFilter = filter;
-  renderCandidateList();
-}
-
-function toggleHired(index) {
-  const candidate = recruiterCandidates[index];
-  if (!candidate) return;
-  candidate.hired = !candidate.hired;
-  saveHiredCandidates();
-  showToast(candidate.hired ? "Marked as hired" : "Marked as open", "success");
-  renderCandidateList();
-}
-
-function renderCandidateList() {
-  const filtered = recruiterCandidates.filter((c) => {
-    if (recruiterFilter === "hired") return c.hired;
-    if (recruiterFilter === "open") return !c.hired;
-    return true;
-  });
-
-  if (filtered.length === 0) {
-    recruiterResults.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon">🔍</div>
-        <div class="empty-title">No matching candidates found</div>
-        <div class="empty-desc">Try broadening your job requirements or adjusting the required experience level.</div>
-      </div>
-    `;
-    return;
-  }
-
-  let html = `
-    <div class="results-header">
-      <div class="results-meta-group">
-        <h3>Top Candidates</h3>
-        <span class="results-meta">${filtered.length} shown • ${recruiterCandidates.length} total</span>
-      </div>
-      <div class="filter-tabs">
-        <button class="filter-tab ${recruiterFilter === 'all' ? 'active' : ''}" onclick="setRecruiterFilter('all')">All</button>
-        <button class="filter-tab ${recruiterFilter === 'open' ? 'active' : ''}" onclick="setRecruiterFilter('open')">Open</button>
-        <button class="filter-tab ${recruiterFilter === 'hired' ? 'active' : ''}" onclick="setRecruiterFilter('hired')">Hired</button>
-      </div>
-    </div>
-  `;
-
-  filtered.forEach((cand, i) => {
-    const rank = i + 1;
-    const rankClass = rank <= 3 ? `rank-${rank}` : "rank-default";
-    const rec = parseRecommendation(cand.llm_evaluation || "");
-    const matchedSkills = cand.matched_skills || [];
-    const allSkills = cand.skills || [];
-
-    html += `
-      <div class="candidate-card" style="animation-delay: ${i * 0.08}s">
-        <div class="card-header">
-          <div class="card-rank ${rankClass}">#${rank}</div>
-          <div class="card-info">
-            <div class="card-name">${escapeHtml(cand.name)}</div>
-            <div class="card-email">${escapeHtml(cand.email)}</div>
-          </div>
-          <div style="display:flex;gap:8px;align-items:center;">
-            ${cand.hired ? '<span class="hired-badge">HIRED</span>' : ''}
-            ${rec.badge}
-            <span class="card-score">${(cand.final_score || 0).toFixed(2)}</span>
-          </div>
-        </div>
-        <div class="card-stats">
-          <div class="stat-item">
-            <div class="stat-label">Experience</div>
-            <div class="stat-value">${cand.experience_years || 0}y</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-label">Internship</div>
-            <div class="stat-value">${cand.internship_years || 0}y</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-label">Total</div>
-            <div class="stat-value">${cand.total_experience_years || 0}y</div>
-          </div>
-        </div>
-        <div class="card-skills">
-          ${matchedSkills.map((s) => `<span class="skill-tag matched">✓ ${escapeHtml(s)}</span>`).join("")}
-          ${allSkills.filter((s) => !matchedSkills.includes(s.toLowerCase())).slice(0, 8).map((s) => `<span class="skill-tag">${escapeHtml(s)}</span>`).join("")}
-        </div>
-        <div class="card-eval">
-          <div class="eval-title">🤖 AI Evaluation</div>
-          <div class="eval-content">${formatLLMText(cand.llm_evaluation || "No evaluation available.")}</div>
-        </div>
-        <div class="card-actions">
-          <button class="outline-btn" onclick="toggleHired(${cand._internalId})">${cand.hired ? 'Mark as Open' : 'Mark as Hired'}</button>
-        </div>
-      </div>
-    `;
-  });
-
-  recruiterResults.innerHTML = html;
-}
-
-function renderCandidates(data) {
-  recruiterCandidates = (data.candidates || []).map((cand, idx) => ({
-    ...cand,
-    hired: false,
-    _internalId: idx,
-  }));
-
-  const stored = loadHiredCandidates();
-  recruiterCandidates.forEach((c) => {
-    const key = c.email || c._internalId;
-    c.hired = stored.includes(key);
-  });
-
-  recruiterFilter = 'all';
-  renderCandidateList();
-}
-
-// ── Seeker: Search via text ──────────────────────────────────────────────
-async function searchJobs() {
-  const text = resumeInput.value.trim();
-  if (!text) {
-    showToast("Please paste your resume text first.", "error");
-    return;
-  }
-
-  const btn = document.getElementById("searchJobsBtn");
-  btn.disabled = true;
-  showSeekerLoading();
-
-  try {
-    const res = await fetch("/api/seeker/search", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ resume_text: text }),
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || `Server error ${res.status}`);
-    }
-
-    const data = await res.json();
-    renderJobs(data);
-  } catch (err) {
-    seekerResults.innerHTML = `<div class="error-state">⚠ ${escapeHtml(err.message)}</div>`;
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-// ── Seeker: Search via file upload ───────────────────────────────────────
-async function uploadSeekerFile() {
-  if (!seekerFile) {
-    showToast("Please select a file first.", "error");
-    return;
-  }
-
-  const btn = document.getElementById("uploadSeekerBtn");
-  btn.disabled = true;
-  showSeekerLoading();
-
-  try {
-    const formData = new FormData();
-    formData.append("file", seekerFile);
-
-    const res = await fetch("/api/seeker/upload", {
-      method: "POST",
-      body: formData,
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || `Server error ${res.status}`);
-    }
-
-    const data = await res.json();
-    renderJobs(data);
-  } catch (err) {
-    seekerResults.innerHTML = `<div class="error-state">⚠ ${escapeHtml(err.message)}</div>`;
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-function showSeekerLoading() {
-  seekerResults.innerHTML = `
-    <div class="loading-indicator">
-      <div class="loading-spinner"></div>
-      <div class="loading-text">Finding matching jobs...</div>
-      <div class="loading-sub">Embedding resume → FAISS search → Career analysis</div>
-    </div>
-  `;
-}
-
-function renderJobs(data) {
-  if (!data.jobs || data.jobs.length === 0) {
-    seekerResults.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon">📄</div>
-        <div class="empty-title">No matching jobs found</div>
-        <div class="empty-desc">Try including more details about your skills and experience in your resume.</div>
-      </div>
-    `;
-    return;
-  }
-
-  let html = `
-    <div class="results-header">
-      <h3>Top Job Matches</h3>
-      <span class="results-meta">${data.jobs.length} matches · ${data.elapsed_seconds}s</span>
-    </div>
-  `;
-
-  data.jobs.forEach((job, i) => {
-    html += `
-      <div class="job-card" style="animation-delay: ${i * 0.08}s">
-        <div class="job-header">
-          <div class="job-title-area">
-            <div class="job-title">${escapeHtml(job.job_title)}</div>
-            <div class="job-company">${escapeHtml(job.company)}</div>
-            <div class="job-location">📍 ${escapeHtml(job.location)}</div>
-          </div>
-          <span class="job-score">${(job.similarity_score || 0).toFixed(2)} match</span>
-        </div>
-        <div class="job-preview">${escapeHtml(job.description_preview)}...</div>
-        <div class="job-analysis">
-          <div class="analysis-title">🤖 Career Analysis</div>
-          <div class="analysis-content">${formatLLMText(job.llm_analysis || "No analysis available.")}</div>
-        </div>
-      </div>
-    `;
-  });
-
-  seekerResults.innerHTML = html;
-}
-
-// ── Utilities ────────────────────────────────────────────────────────────
-function escapeHtml(text) {
-  const div = document.createElement("div");
-  div.textContent = text;
-  return div.innerHTML;
-}
-
-function formatLLMText(text) {
-  let html = escapeHtml(text);
-  html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-  html = html.replace(/^(\d+)\.\s+(.+)$/gm, "<strong>$1.</strong> $2");
-  html = html.replace(/^[-•]\s+(.+)$/gm, "• $1");
-  return html;
-}
-
-function clearRecruiterInput() {
-  jdInput.value = "";
-  jdCharCount.textContent = "0";
-  recruiterResults.innerHTML = "";
-  recruiterFile = null;
-  const recruiterFileInput = document.getElementById("recruiterFileInput");
-  if (recruiterFileInput) recruiterFileInput.value = "";
-  const recruiterFileName = document.getElementById("recruiterFileName");
-  if (recruiterFileName) recruiterFileName.textContent = "";
-  const recruiterFileInfo = document.getElementById("recruiterFileInfo");
-  if (recruiterFileInfo) recruiterFileInfo.textContent = "";
-  document.getElementById("recruiterDropZone")?.classList.remove("has-file");
-  const uploadBtn = document.getElementById("uploadRecruiterBtn");
-  if (uploadBtn) uploadBtn.disabled = true;
-}
-
-function clearSeekerInput() {
-  resumeInput.value = "";
-  resumeCharCount.textContent = "0";
-  seekerResults.innerHTML = "";
-  seekerFile = null;
-  const seekerFileInput = document.getElementById("seekerFileInput");
-  if (seekerFileInput) seekerFileInput.value = "";
-  const seekerFileName = document.getElementById("seekerFileName");
-  if (seekerFileName) seekerFileName.textContent = "";
-  const seekerFileInfo = document.getElementById("seekerFileInfo");
-  if (seekerFileInfo) seekerFileInfo.textContent = "";
-  document.getElementById("seekerDropZone")?.classList.remove("has-file");
-  const uploadBtn = document.getElementById("uploadSeekerBtn");
-  if (uploadBtn) uploadBtn.disabled = true;
-}
-
-function parseRecommendation(evalText) {
-  const lower = evalText.toLowerCase();
-  if (lower.includes("hire") && !lower.includes("not hire")) {
-    return { badge: '<span class="rec-badge rec-hire">✓ Hire</span>' };
-  }
-  if (lower.includes("consider")) {
-    return { badge: '<span class="rec-badge rec-consider">◐ Consider</span>' };
-  }
-  if (lower.includes("reject")) {
-    return { badge: '<span class="rec-badge rec-reject">✗ Reject</span>' };
-  }
-  return { badge: "" };
-}
-
-async function rebuildData() {
-  const btn = document.getElementById("rebuildIcon");
-  btn.textContent = "⏳";
-  btn.disabled = true;
-
-  try {
-    const res = await fetch("/api/rebuild-data", { method: "POST" });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || `Server error ${res.status}`);
-    }
-
-    const data = await res.json();
-    showToast(data.message || "Data reload started", "success");
-    loadStats();
-    await checkIndexStatus();
-  } catch (err) {
-    showToast(err.message || "Failed to reload data", "error");
-  } finally {
-    btn.textContent = "🔁";
-    btn.disabled = false;
-  }
-}
-
-function showToast(msg, type = "error") {
-  const container = document.getElementById("toastContainer");
-  const toast = document.createElement("div");
-  toast.className = `toast ${type}`;
-  toast.textContent = msg;
-  container.appendChild(toast);
-  setTimeout(() => toast.remove(), 4000);
-}
-
-function setSearchEnabled(role, enabled) {
-  if (role === "recruiter") {
-    const searchBtn = document.getElementById("searchCandidatesBtn");
-    const uploadBtn = document.getElementById("uploadRecruiterBtn");
-    const clearBtn = document.getElementById("clearRecruiterBtn");
-    if (searchBtn) searchBtn.disabled = !enabled;
-    if (uploadBtn) uploadBtn.disabled = !enabled || !recruiterFile;
-    if (clearBtn) clearBtn.disabled = !enabled;
-  } else if (role === "seeker") {
-    const searchBtn = document.getElementById("searchJobsBtn");
-    const uploadBtn = document.getElementById("uploadSeekerBtn");
-    const clearBtn = document.getElementById("clearSeekerBtn");
-    if (searchBtn) searchBtn.disabled = !enabled;
-    if (uploadBtn) uploadBtn.disabled = !enabled || !seekerFile;
-    if (clearBtn) clearBtn.disabled = !enabled;
-  }
-}
-
-function updateIndexStatusUI(data) {
-  const ready = !!data.data_loaded;
-
-  const recruiterBar = document.getElementById("recruiterStatusBar");
-  if (recruiterBar) {
-    recruiterBar.hidden = ready;
-    if (!ready) {
-      recruiterBar.querySelector(".status-text").textContent =
-        "Loading data... please wait.";
-    }
-  }
-
-  const seekerBar = document.getElementById("seekerStatusBar");
-  if (seekerBar) {
-    seekerBar.hidden = ready;
-    if (!ready) {
-      seekerBar.querySelector(".status-text").textContent =
-        "Loading data... please wait.";
-    }
-  }
-
-  setSearchEnabled("recruiter", ready);
-  setSearchEnabled("seeker", ready);
-}
-
-async function checkIndexStatus(pollSeconds = 3, maxAttempts = 20) {
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      const res = await fetch("/api/health");
-      if (!res.ok) throw new Error("Network error");
-      const data = await res.json();
-
-      updateIndexStatusUI(data);
-      if (data.data_loaded) {
-        return true;
-      }
-    } catch {
-      // ignore errors and retry
-    }
-
-    await new Promise((r) => setTimeout(r, pollSeconds * 1000));
-  }
-
-  // If we never became ready, keep the UI usable.
-  return false;
-}
-
-function exportHiredCandidates() {
-  const hired = recruiterCandidates.filter((c) => c.hired);
-  if (hired.length === 0) {
-    showToast("No hired candidates to export", "error");
-    return;
-  }
-
-  const rows = [
-    ["Name", "Email", "Experience", "Internship", "Total", "Recommendation"],
-  ];
-
-  hired.forEach((c) => {
-    rows.push([
-      c.name || "",
-      c.email || "",
-      c.experience_years || "",
-      c.internship_years || "",
-      c.total_experience_years || "",
-      c.llm_evaluation ? c.llm_evaluation.replace(/\n/g, " ") : "",
-    ]);
-  });
-
-  const csv = rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "hired_candidates.csv";
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-
-  showToast("Exported hired candidates to CSV", "success");
-}
+// Initialize app
+document.addEventListener('DOMContentLoaded', () => app.init());

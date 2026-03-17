@@ -121,9 +121,16 @@ const app = {
                     </div>
                     <div class="match-score">${score}%</div>
                 </div>
-                <div style="margin-top: 1.5rem; font-size: 0.85rem; color: var(--muted); line-height: 1.4;">
-                    ${res.content}
-                </div>
+                
+                <details style="margin-top: 1rem;">
+                    <summary style="font-size: 0.7rem; color: var(--muted); cursor: pointer; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em;">
+                        View_Raw_Context
+                    </summary>
+                    <div style="margin-top: 0.5rem; font-size: 0.85rem; color: var(--muted); line-height: 1.4; background: var(--card-bg); padding: 1rem; border: 1px dashed var(--border);">
+                        ${res.content}
+                    </div>
+                </details>
+
                 ${analysisHtml}
             `;
             container.appendChild(card);

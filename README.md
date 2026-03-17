@@ -8,55 +8,29 @@ app_port: 7860
 pinned: false
 ---
 
-# Skill Match Hub
+# SKILL MATCH HUB
 
-Skill Match Hub is a job matching platform that utilizes semantic search and Large Language Models to connect candidates with relevant opportunities. It leverages Groq (Llama 3.3) and FAISS to provide context-aware matching beyond simple keyword searches.
+Skill Match Hub is a high-precision job matching platform that utilizes semantic search and Large Language Models to connect candidates with relevant opportunities.
 
-## Features
+## 🔗 Live Links
+- **Application**: [https://huggingface.co/spaces/Lazerai/skill-match-hub](https://huggingface.co/spaces/Lazerai/skill-match-hub)
+- **Source Code**: [https://github.com/LAZERAI/skill-match-hub](https://github.com/LAZERAI/skill-match-hub)
 
-- **Semantic Evaluation**: Uses Sentence Transformers to identify skill alignment between resumes and job descriptions.
-- **Recruiter Insights**: Automated evaluation of candidate fit for specific roles.
-- **Candidate Guidance**: Personalized feedback on job suitability and skill development.
-- **Responsive Interface**: Modern web UI with support for both light and dark themes.
-- **FastAPI Backend**: Optimized server for efficient query processing.
+## 💎 Features
+- **Semantic Evaluation**: Uses Sentence Transformers to identify skill alignment.
+- **Industrial Aesthetic**: A high-end, monochromatic UI inspired by Vercel and Linear.
+- **AI Insights**: Automated fit analysis powered by Groq (Llama 3.3).
+- **PDF Extraction**: Instant client-side text extraction for resumes and JDs.
+- **Keyboard Optimized**: Execute searches with `Ctrl + Enter`.
 
-## Tech Stack
-
-- **Frontend**: Vanilla JavaScript, HTML5, CSS3.
+## 🛠️ Tech Stack
+- **Frontend**: Vanilla JS, CSS3 (Industrial Grid), HTML5.
 - **Backend**: FastAPI, Uvicorn.
-- **AI/ML**: FAISS, Sentence Transformers (all-MiniLM-L6-v2), Groq API.
-- **Deployment**: Docker, HuggingFace Spaces.
+- **AI/ML**: FAISS, Sentence Transformers, Groq API.
 
-## Installation
-
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/LAZERAI/skill-match-hub
-   cd skill-match-hub
-   ```
-
-2. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Configure environment**:
-   Create a `.env` file with your Groq API key:
-   ```env
-   GROQ_API_KEY=your_groq_api_key_here
-   ```
-
-4. **Run the application**:
-   ```bash
-   uvicorn app:app --reload
-   ```
-   The application will be available at `http://localhost:8000`.
-
-## Credits
-
+## 👨‍💻 Credits
 - **Original Logic & Data**: Rijin Shaji ([@Rijin-shaji](https://github.com/Rijin-shaji))
 - **Frontend & Integration**: LAZERAI
 
-## License
-
+## 📄 License
 This project is licensed under the MIT License.

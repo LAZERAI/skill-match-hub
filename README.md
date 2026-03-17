@@ -1,25 +1,33 @@
-# Skill Match Hub — AI-Powered Job Matching
+---
+title: Skill Match Hub
+emoji: 🎯
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+---
 
-**Skill Match Hub** is a next-generation recruitment platform that uses semantic search and Large Language Models (LLMs) to connect talent with opportunities. 
+# Skill Match Hub
 
-Powered by **Groq (Llama 3.3)** and **FAISS**, this platform goes beyond keyword matching to understand the context and meaning of resumes and job descriptions.
+Skill Match Hub is a job matching platform that utilizes semantic search and Large Language Models to connect candidates with relevant opportunities. It leverages Groq (Llama 3.3) and FAISS to provide context-aware matching beyond simple keyword searches.
 
-## 🚀 Features
+## Features
 
-- **Semantic Match Evaluation**: Uses Sentence Transformers to understand deep skill alignment.
-- **AI Analysis for Recruiters**: LLM-driven evaluation of candidates' fit for a role.
-- **Career Advice for Seekers**: Personalized insights on why a job fits and how to prepare.
-- **Modern UI**: Clean, LinkedIn-inspired interface with responsive design and theme support (Dark/Light).
-- **Consolidated Backend**: Fast and efficient FastAPI server.
+- **Semantic Evaluation**: Uses Sentence Transformers to identify skill alignment between resumes and job descriptions.
+- **Recruiter Insights**: Automated evaluation of candidate fit for specific roles.
+- **Candidate Guidance**: Personalized feedback on job suitability and skill development.
+- **Responsive Interface**: Modern web UI with support for both light and dark themes.
+- **FastAPI Backend**: Optimized server for efficient query processing.
 
-## 🛠️ Tech Stack
+## Tech Stack
 
-- **Frontend**: Vanilla JS, HTML5, CSS3 (Custom properties for theming).
+- **Frontend**: Vanilla JavaScript, HTML5, CSS3.
 - **Backend**: FastAPI, Uvicorn.
-- **AI/ML**: FAISS, Sentence Transformers (all-MiniLM-L6-v2), Groq API (Llama 3.3).
+- **AI/ML**: FAISS, Sentence Transformers (all-MiniLM-L6-v2), Groq API.
 - **Deployment**: Docker, HuggingFace Spaces.
 
-## 📦 Setup & Installation
+## Installation
 
 1. **Clone the repository**:
    ```bash
@@ -33,7 +41,7 @@ Powered by **Groq (Llama 3.3)** and **FAISS**, this platform goes beyond keyword
    ```
 
 3. **Configure environment**:
-   Create a `.env` file and add your Groq API key:
+   Create a `.env` file with your Groq API key:
    ```env
    GROQ_API_KEY=your_groq_api_key_here
    ```
@@ -42,13 +50,13 @@ Powered by **Groq (Llama 3.3)** and **FAISS**, this platform goes beyond keyword
    ```bash
    uvicorn app:app --reload
    ```
-   Open `http://localhost:8000` in your browser.
+   The application will be available at `http://localhost:8000`.
 
-## 👨‍💻 Credits
+## Credits
 
 - **Original Logic & Data**: Rijin Shaji ([@Rijin-shaji](https://github.com/Rijin-shaji))
 - **Frontend & Integration**: LAZERAI
 
-## 📄 License
+## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License.

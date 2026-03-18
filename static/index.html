@@ -11,81 +11,82 @@
 </head>
 <body>
     <nav class="nav">
-        <div class="logo">Skill Match Hub</div>
-        <button id="theme-toggle" class="btn btn-ghost" style="padding: 0.5rem; border: none;"><i class="fa-solid fa-moon"></i></button>
+        <div class="logo">Skill_Match_Hub</div>
+        <button id="theme-toggle" class="btn btn-ghost" style="padding: 0.5rem;"><i class="fa-solid fa-moon"></i></button>
     </nav>
 
     <main class="container">
         <!-- Landing -->
         <section id="landing-view" class="view active">
             <div class="hero">
-                <h1>MATCH<br>TALENT<br>SMARTER.</h1>
-                <p style="color: var(--muted); margin-top: 2rem; font-weight: 600;">AI-powered semantic analysis for the modern workforce.</p>
+                <h1>PRECISION<br>TALENT<br>MAPPING.</h1>
+                <p style="color: var(--muted); font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; font-size: 0.8rem;">Semantic Analysis // FAISS Vector Engine // Llama 3.3</p>
             </div>
 
             <div class="role-selector">
                 <div class="role-option" onclick="app.switchView('recruiter')">
-                    <h2>RECRUITER</h2>
-                    <p style="color: var(--muted);">Find top-tier candidates with semantic precision.</p>
+                    <h2>RECRUITER_ACCESS</h2>
+                    <p style="color: var(--muted); font-size: 0.9rem;">Map candidates to job requirements with semantic scoring.</p>
                     <i class="fa-solid fa-arrow-right" style="margin-top: auto; align-self: flex-end;"></i>
                 </div>
                 <div class="role-option" onclick="app.switchView('seeker')">
-                    <h2>JOB SEEKER</h2>
-                    <p style="color: var(--muted);">Navigate your career with AI-backed matching.</p>
+                    <h2>JOB_SEEKER_ACCESS</h2>
+                    <p style="color: var(--muted); font-size: 0.9rem;">Find openings that align with your skill profile.</p>
                     <i class="fa-solid fa-arrow-right" style="margin-top: auto; align-self: flex-end;"></i>
                 </div>
             </div>
         </section>
 
-        <!-- Recruiter -->
+        <!-- Recruiter Dashboard -->
         <section id="recruiter-view" class="view">
-            <div style="display: flex; justify-content: space-between; align-items: baseline;">
-                <h2 style="font-size: 3rem; letter-spacing: -0.04em;">RECRUITER_DASH</h2>
+            <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3rem;">
+                <h2 style="font-weight: 800; letter-spacing: -0.02em;">RECRUITER_DASHBOARD</h2>
                 <button class="btn btn-ghost" onclick="app.switchView('landing')">EXIT</button>
             </div>
 
-            <div class="input-area">
-                <textarea id="jd-input" placeholder="PASTE_JOB_DESCRIPTION // CTRL + ENTER TO EXECUTE"></textarea>
-                <div class="controls">
-                    <button class="btn" onclick="app.searchCandidates()">EXECUTE_SEARCH</button>
+            <div class="input-container">
+                <div id="recruiter-file-status"></div>
+                <textarea id="jd-input" placeholder="INPUT_JOB_DESCRIPTION // CTRL+ENTER_TO_PROCESS"></textarea>
+                <div class="status-indicator" id="recruiter-status"></div>
+                
+                <div class="controls" style="margin-top: 1.5rem;">
+                    <button class="btn" id="btn-recruiter-search" onclick="app.searchCandidates()">EXECUTE_MAPPING</button>
                     <label class="btn btn-ghost">
-                        UPLOAD_PDF
-                        <input type="file" accept=".pdf,.txt" hidden onchange="app.handleFileUpload(event, 'jd-input')">
+                        SOURCE_PDF
+                        <input type="file" accept=".pdf,.txt" hidden onchange="app.handleFileUpload(event, 'recruiter')">
                     </label>
-                    <button class="btn btn-ghost" onclick="app.clearSearch('recruiter')">CLEAR</button>
+                    <button class="btn btn-ghost" onclick="app.clearSearch('recruiter')">RESET</button>
                 </div>
             </div>
 
-            <div id="recruiter-results" class="results-grid"></div>
+            <div id="recruiter-results" style="margin-top: 5rem;"></div>
         </section>
 
-        <!-- Seeker -->
+        <!-- Seeker Dashboard -->
         <section id="seeker-view" class="view">
-            <div style="display: flex; justify-content: space-between; align-items: baseline;">
-                <h2 style="font-size: 3rem; letter-spacing: -0.04em;">SEEKER_DASH</h2>
+            <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3rem;">
+                <h2 style="font-weight: 800; letter-spacing: -0.02em;">SEEKER_DASHBOARD</h2>
                 <button class="btn btn-ghost" onclick="app.switchView('landing')">EXIT</button>
             </div>
 
-            <div class="input-area">
-                <textarea id="resume-input" placeholder="PASTE_RESUME_TEXT // CTRL + ENTER TO EXECUTE"></textarea>
-                <div class="controls">
-                    <button class="btn" onclick="app.searchJobs()">EXECUTE_SEARCH</button>
+            <div class="input-container">
+                <div id="seeker-file-status"></div>
+                <textarea id="resume-input" placeholder="INPUT_RESUME_TEXT // CTRL+ENTER_TO_PROCESS"></textarea>
+                <div class="status-indicator" id="seeker-status"></div>
+
+                <div class="controls" style="margin-top: 1.5rem;">
+                    <button class="btn" id="btn-seeker-search" onclick="app.searchJobs()">EXECUTE_MAPPING</button>
                     <label class="btn btn-ghost">
-                        UPLOAD_PDF
-                        <input type="file" accept=".pdf,.txt" hidden onchange="app.handleFileUpload(event, 'resume-input')">
+                        SOURCE_PDF
+                        <input type="file" accept=".pdf,.txt" hidden onchange="app.handleFileUpload(event, 'seeker')">
                     </label>
-                    <button class="btn btn-ghost" onclick="app.clearSearch('seeker')">CLEAR</button>
+                    <button class="btn btn-ghost" onclick="app.clearSearch('seeker')">RESET</button>
                 </div>
             </div>
 
-            <div id="seeker-results" class="results-grid"></div>
+            <div id="seeker-results" style="margin-top: 5rem;"></div>
         </section>
     </main>
-
-    <div id="loading-overlay" class="hidden">
-        <div class="spinner"></div>
-        <p style="font-family: 'Geist Mono', monospace; font-size: 0.8rem; letter-spacing: 0.1em;">INITIATING_AI_ANALYSIS...</p>
-    </div>
 
     <script src="script.js"></script>
 </body>

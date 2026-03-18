@@ -1,13 +1,13 @@
 const app = {
     state: {
-        theme: localStorage.getItem('theme') || 'light'
+        theme: localStorage.getItem('theme') || 'light',
+        extractedText: { recruiter: '', seeker: '' }
     },
 
     init() {
         this.applyTheme();
         document.getElementById('theme-toggle').addEventListener('click', () => this.toggleTheme());
         
-        // Ctrl + Enter support
         document.querySelectorAll('textarea').forEach(el => {
             el.addEventListener('keydown', (e) => {
                 if (e.ctrlKey && e.key === 'Enter') {
@@ -36,15 +36,38 @@ const app = {
         icon.className = this.state.theme === 'dark' ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
     },
 
-    async handleFileUpload(event, targetId) {
+    async handleFileUpload(event, role) {
         const file = event.target.files[0];
         if (!file) return;
-        this.showLoading(true, "READING_LOCAL_FILESYSTEM...");
+
+        const statusId = `${role}-status`;
+        const chipContainer = `${role}-file-status`;
+        const textArea = document.getElementById(role === 'recruiter' ? 'jd-input' : 'resume-input');
+
+        this.updateStatus(statusId, "EXTRACTING_TEXT...");
+        
         try {
             const text = file.type === "application/pdf" ? await this.readPdf(file) : await file.text();
-            document.getElementById(targetId).value = text;
-        } catch (e) { alert("FILE_READ_FAILURE"); }
-        finally { this.showLoading(false); event.target.value = ''; }
+            
+            // Store text in background state
+            this.state.extractedText[role] = text;
+            
+            // Clear textarea and show chip
+            textArea.value = "";
+            textArea.placeholder = "TEXT_EXTRACTED_FROM_FILE. READY_TO_MAP.";
+            
+            document.getElementById(chipContainer).innerHTML = `
+                <div class="file-chip">
+                    <i class="fa-solid fa-file-code"></i> ${file.name}
+                </div>`;
+            
+            this.updateStatus(statusId, "EXTRACTION_COMPLETE.");
+        } catch (e) { 
+            this.updateStatus(statusId, "EXTRACTION_ERROR.");
+            alert("Failed to read file."); 
+        } finally { 
+            event.target.value = ''; 
+        }
     },
 
     async readPdf(file) {
@@ -59,9 +82,13 @@ const app = {
     },
 
     async searchCandidates() {
-        const q = document.getElementById('jd-input').value;
-        if (!q.trim()) return;
-        this.showLoading(true, "EXECUTING_SEMANTIC_QUERY...");
+        const q = document.getElementById('jd-input').value || this.state.extractedText.recruiter;
+        if (!q.trim()) return alert("No input provided.");
+        
+        const btn = document.getElementById('btn-recruiter-search');
+        const status = 'recruiter-status';
+        
+        this.setLoading(btn, true, status, "QUERYING_ENGINE...");
         try {
             const res = await fetch('/api/recruiter/search', {
                 method: 'POST',
@@ -70,14 +97,22 @@ const app = {
             });
             const data = await res.json();
             this.renderResults(data, 'recruiter');
-        } catch (e) { alert("QUERY_EXECUTION_FAILURE"); }
-        finally { this.showLoading(false); }
+            this.updateStatus(status, "MAPPING_SUCCESSFUL.");
+        } catch (e) { 
+            this.updateStatus(status, "QUERY_FAILURE.");
+        } finally { 
+            this.setLoading(btn, false); 
+        }
     },
 
     async searchJobs() {
-        const q = document.getElementById('resume-input').value;
-        if (!q.trim()) return;
-        this.showLoading(true, "EXECUTING_SEMANTIC_QUERY...");
+        const q = document.getElementById('resume-input').value || this.state.extractedText.seeker;
+        if (!q.trim()) return alert("No input provided.");
+
+        const btn = document.getElementById('btn-seeker-search');
+        const status = 'seeker-status';
+
+        this.setLoading(btn, true, status, "QUERYING_ENGINE...");
         try {
             const res = await fetch('/api/seeker/search', {
                 method: 'POST',
@@ -86,8 +121,12 @@ const app = {
             });
             const data = await res.json();
             this.renderResults(data, 'seeker');
-        } catch (e) { alert("QUERY_EXECUTION_FAILURE"); }
-        finally { this.showLoading(false); }
+            this.updateStatus(status, "MAPPING_SUCCESSFUL.");
+        } catch (e) { 
+            this.updateStatus(status, "QUERY_FAILURE.");
+        } finally { 
+            this.setLoading(btn, false); 
+        }
     },
 
     renderResults(results, type) {
@@ -103,9 +142,9 @@ const app = {
             if (res.llm_analysis) {
                 const isError = res.llm_analysis.includes('_ERROR') || res.llm_analysis.includes('_OFFLINE');
                 analysisHtml = `
-                    <div class="ai-box" style="${isError ? 'opacity: 0.5; border-top-color: var(--muted);' : ''}">
-                        <h4>${isError ? 'AI_ENGINE_OFFLINE' : 'AI_GENERATED_INSIGHTS'}</h4>
-                        <div style="font-size: 0.9rem;">${res.llm_analysis.replace(/\n/g, '<br>')}</div>
+                    <div class="ai-box" style="${isError ? 'opacity: 0.5;' : ''}">
+                        <h4>${isError ? 'AI_OFFLINE' : 'AI_INSIGHTS'}</h4>
+                        <div style="font-size: 0.85rem; line-height: 1.5;">${res.llm_analysis.replace(/\n/g, '<br>')}</div>
                     </div>`;
             }
 
@@ -115,37 +154,55 @@ const app = {
 
             card.innerHTML = `
                 <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-                    <div>
-                        <h3 style="letter-spacing: -0.02em;">${title.toUpperCase()}</h3>
-                        <p style="color: var(--muted); font-size: 0.8rem; font-family: 'Geist Mono', monospace;">${sub}</p>
+                    <div style="flex: 1;">
+                        <h3 style="font-weight: 800; letter-spacing: -0.02em; font-size: 1.1rem;">${title.toUpperCase()}</h3>
+                        <p style="color: var(--muted); font-size: 0.75rem; font-family: 'Geist Mono', monospace; margin-top: 0.2rem;">${sub}</p>
                     </div>
-                    <div class="match-score">${score}%</div>
+                    <div style="text-align: right;">
+                        <div class="match-score">${score}%</div>
+                        <details style="display: inline-block;">
+                            <summary class="icon-toggle" title="View Source"><i class="fa-solid fa-file-lines"></i></summary>
+                            <div style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 80%; max-width: 600px; max-height: 70vh; overflow-y: auto; background: var(--bg); border: 1px solid var(--fg); padding: 2rem; z-index: 2000; box-shadow: 0 0 0 1000px rgba(0,0,0,0.5); font-size: 0.85rem; color: var(--muted); white-space: pre-wrap; font-family: 'Geist Mono', monospace;">
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">
+                                    <strong style="color: var(--fg)">RAW_CONTEXT_SOURCE</strong>
+                                    <span style="cursor: pointer; color: var(--fg)" onclick="this.parentElement.parentElement.parentElement.removeAttribute('open')">CLOSE [X]</span>
+                                </div>
+                                ${res.content}
+                            </div>
+                        </details>
+                    </div>
                 </div>
-                
-                <details style="margin-top: 1rem;">
-                    <summary style="font-size: 0.7rem; color: var(--muted); cursor: pointer; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em;">
-                        View_Raw_Context
-                    </summary>
-                    <div style="margin-top: 0.5rem; font-size: 0.85rem; color: var(--muted); line-height: 1.4; background: var(--card-bg); padding: 1rem; border: 1px dashed var(--border);">
-                        ${res.content}
-                    </div>
-                </details>
-
                 ${analysisHtml}
             `;
             container.appendChild(card);
         });
     },
 
-    clearSearch(role) {
-        document.getElementById(role === 'recruiter' ? 'jd-input' : 'resume-input').value = '';
-        document.getElementById(`${role}-results`).innerHTML = '';
+    setLoading(btn, isLoading, statusId, text) {
+        if (isLoading) {
+            btn.dataset.originalText = btn.innerText;
+            btn.innerHTML = `<span class="loading-dots">PROCESSING</span>`;
+            btn.disabled = true;
+            this.updateStatus(statusId, text);
+        } else {
+            btn.innerText = btn.dataset.originalText;
+            btn.disabled = false;
+        }
     },
 
-    showLoading(isLoading, text = "PROCESSING...") {
-        const overlay = document.getElementById('loading-overlay');
-        overlay.querySelector('p').innerText = text;
-        overlay.className = isLoading ? '' : 'hidden';
+    updateStatus(id, text) {
+        const el = document.getElementById(id);
+        if (el) el.innerText = text;
+    },
+
+    clearSearch(role) {
+        const textArea = document.getElementById(role === 'recruiter' ? 'jd-input' : 'resume-input');
+        textArea.value = '';
+        textArea.placeholder = role === 'recruiter' ? 'INPUT_JOB_DESCRIPTION // CTRL+ENTER_TO_PROCESS' : 'INPUT_RESUME_TEXT // CTRL+ENTER_TO_PROCESS';
+        this.state.extractedText[role] = '';
+        document.getElementById(`${role}-results`).innerHTML = '';
+        document.getElementById(`${role}-file-status`).innerHTML = '';
+        document.getElementById(`${role}-status`).innerText = 'RESET_COMPLETE.';
     }
 };
 

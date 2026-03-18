@@ -7,7 +7,6 @@
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-    <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
 </head>
 <body>
     <nav class="nav">
@@ -51,10 +50,8 @@
                 
                 <div class="controls" style="margin-top: 1.5rem;">
                     <button class="btn" id="btn-recruiter-search" onclick="app.searchCandidates()">EXECUTE_MAPPING</button>
-                    <label class="btn btn-ghost">
-                        SOURCE_PDF
-                        <input type="file" accept=".pdf,.txt" hidden onchange="app.handleFileUpload(event, 'recruiter')">
-                    </label>
+                    <input type="file" id="jd-file-input" accept=".pdf,.txt" style="display: none;" onchange="app.handleFileUpload(event, 'recruiter')">
+                    <button class="btn btn-ghost" onclick="document.getElementById('jd-file-input').click()">SOURCE_PDF</button>
                     <button class="btn btn-ghost" onclick="app.clearSearch('recruiter')">RESET</button>
                 </div>
             </div>
@@ -76,10 +73,8 @@
 
                 <div class="controls" style="margin-top: 1.5rem;">
                     <button class="btn" id="btn-seeker-search" onclick="app.searchJobs()">EXECUTE_MAPPING</button>
-                    <label class="btn btn-ghost">
-                        SOURCE_PDF
-                        <input type="file" accept=".pdf,.txt" hidden onchange="app.handleFileUpload(event, 'seeker')">
-                    </label>
+                    <input type="file" id="seeker-file-input" accept=".pdf,.txt" style="display: none;" onchange="app.handleFileUpload(event, 'seeker')">
+                    <button class="btn btn-ghost" onclick="document.getElementById('seeker-file-input').click()">SOURCE_PDF</button>
                     <button class="btn btn-ghost" onclick="app.clearSearch('seeker')">RESET</button>
                 </div>
             </div>

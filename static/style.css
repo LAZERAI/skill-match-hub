@@ -9,6 +9,7 @@
     --border: #eaeaea;
     --card-bg: #fafafa;
     --header-height: 64px;
+    --warning: #f59e0b; /* Orange for Missing */
 }
 
 [data-theme="dark"] {
@@ -75,27 +76,74 @@ textarea {
 }
 textarea:focus { outline: none; border-color: var(--fg); }
 
-/* File Chip */
 .file-chip {
     display: inline-flex; align-items: center; gap: 0.5rem; background: var(--fg); color: var(--bg);
     padding: 0.4rem 0.8rem; font-family: 'Geist Mono', monospace; font-size: 0.7rem; 
     text-transform: uppercase; margin-bottom: 1rem; border-radius: 2px;
 }
-.file-chip i { font-size: 0.8rem; }
 
-/* Status Bar */
 .status-indicator { font-family: 'Geist Mono', monospace; font-size: 0.65rem; color: var(--muted); margin-top: 0.5rem; text-transform: uppercase; height: 1rem; }
 
+/* Match Analysis Popover */
+.popover-trigger {
+    position: relative;
+    cursor: pointer;
+}
+
+.popover-content {
+    visibility: hidden;
+    opacity: 0;
+    position: absolute;
+    bottom: 120%;
+    right: 0;
+    width: 280px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 1.5rem;
+    box-shadow: 0 15px 30px -10px rgba(0,0,0,0.2);
+    z-index: 1000;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    transform: translateY(10px);
+    text-align: left;
+}
+
+.popover-trigger:hover .popover-content {
+    visibility: visible;
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.popover-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.popover-header h3 { font-size: 0.8rem; letter-spacing: 0.05em; font-weight: 800; color: var(--muted); }
+
+/* Progress Bars */
+.progress-group { margin-bottom: 1rem; }
+.progress-label { display: flex; justify-content: space-between; font-size: 0.7rem; font-weight: 700; margin-bottom: 0.3rem; }
+.progress-bar-bg { width: 100%; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+.progress-bar-fill { height: 100%; background: var(--accent); transition: width 1s ease; }
+
+.missing-alert {
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid var(--warning);
+    padding: 0.75rem;
+    margin-top: 1rem;
+    border-radius: 4px;
+}
+.missing-alert strong { display: block; font-size: 0.65rem; color: var(--warning); text-transform: uppercase; margin-bottom: 0.3rem; }
+.missing-alert p { font-size: 0.75rem; color: var(--fg); font-weight: 600; }
+
 /* Results */
-.result-card { border: 1px solid var(--border); padding: 2rem; margin-bottom: 2rem; transition: border-color 0.2s; }
+.result-card { border: 1px solid var(--border); padding: 2rem; margin-bottom: 2rem; transition: border-color 0.2s; position: relative; }
 .result-card:hover { border-color: var(--muted); }
 .match-score { font-family: 'Geist Mono', monospace; font-weight: 700; color: var(--accent); font-size: 1.5rem; }
 
-/* Icon Toggle */
-.icon-toggle {
-    background: none; border: none; color: var(--muted); cursor: pointer; padding: 0.5rem;
-    font-size: 1rem; transition: color 0.2s;
-}
+.icon-toggle { background: none; border: none; color: var(--muted); cursor: pointer; padding: 0.5rem; font-size: 1rem; transition: color 0.2s; }
 .icon-toggle:hover { color: var(--fg); }
 
 .ai-box { margin-top: 2rem; padding: 1.5rem; background: var(--card-bg); border-left: 2px solid var(--fg); }
@@ -111,7 +159,7 @@ textarea:focus { outline: none; border-color: var(--fg); }
 .btn-ghost { background: transparent; color: var(--fg); border-color: transparent; }
 .btn-ghost:hover { background: var(--border); }
 
-/* Loader Spinner (Small) */
+/* Loader */
 .loading-dots:after { content: ' .'; animation: dots 1.5s steps(5, end) infinite; }
 @keyframes dots { 0%, 20% { color: rgba(0,0,0,0); text-shadow: .25em 0 0 rgba(0,0,0,0), .5em 0 0 rgba(0,0,0,0); } 40% { color: var(--muted); text-shadow: .25em 0 0 rgba(0,0,0,0), .5em 0 0 rgba(0,0,0,0); } 60% { text-shadow: .25em 0 0 var(--muted), .5em 0 0 rgba(0,0,0,0); } 80%, 100% { text-shadow: .25em 0 0 var(--muted), .5em 0 0 var(--muted); } }
 
@@ -123,4 +171,5 @@ textarea:focus { outline: none; border-color: var(--fg); }
 @media (max-width: 768px) {
     .role-selector { grid-template-columns: 1fr; }
     .hero h1 { font-size: 3rem; }
+    .popover-content { width: 240px; right: auto; left: -50px; }
 }

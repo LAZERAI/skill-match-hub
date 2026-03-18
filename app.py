@@ -77,24 +77,21 @@ def get_embedding(text: str) -> np.ndarray:
 
 def generate_llm_analysis(prompt: str) -> str:
     if not groq_client:
-        return "SERVICE_OFFLINE: Groq API client not initialized. Check server environment variables."
+        return "OFFLINE // CLIENT_NOT_READY"
     
     try:
         completion = groq_client.chat.completions.create(
             messages=[
-                {"role": "system", "content": "You are a senior recruiter. Provide analysis in 3 short bullet points. Do not mention errors or internal IDs."},
+                {"role": "system", "content": "You are a technical recruiter. Provide analysis in a strict KEY: VALUE format. Keys: SKILLS_SCORE, EXP_SCORE, EDU_SCORE, MISSING, SUMMARY."},
                 {"role": "user", "content": prompt}
             ],
             model="llama-3.3-70b-versatile",
-            temperature=0.2,
-            max_tokens=300,
+            temperature=0.1,
+            max_tokens=400,
         )
         return completion.choices[0].message.content
     except Exception as e:
-        err = str(e)
-        if "401" in err: return "AUTH_ERROR: Invalid API key provided to Groq."
-        if "429" in err: return "RATE_LIMIT: Groq API quota exceeded."
-        return f"ANALYSIS_ERROR: {err}"
+        return f"ERROR // {str(e)}"
 
 @app.post("/api/recruiter/search", response_model=List[SearchResult])
 async def recruiter_search(request: SearchRequest):
@@ -114,7 +111,17 @@ async def recruiter_search(request: SearchRequest):
         )
         
         if groq_client and len(results) < 3:
-            prompt = f"JD: {request.query[:500]}\nCandidate: {meta.get('text', '')[:1000]}\nAnalyze fit."
+            prompt = f"""
+            JD: {request.query[:500]}
+            Candidate Profile: {meta.get('text', '')[:1000]}
+            
+            Evaluate and return ONLY this format:
+            SKILLS_SCORE: [0-100]
+            EXP_SCORE: [0-100]
+            EDU_SCORE: [0-100]
+            MISSING: [list 2 items]
+            SUMMARY: [1 short sentence]
+            """
             res.llm_analysis = generate_llm_analysis(prompt)
         
         results.append(res)
@@ -138,19 +145,20 @@ async def seeker_search(request: SearchRequest):
         )
         
         if groq_client and len(results) < 3:
-            prompt = f"Resume: {request.query[:500]}\nJob: {meta.get('text', '')[:1000]}\nProvide career advice."
+            prompt = f"""
+            Resume: {request.query[:500]}
+            Job: {meta.get('text', '')[:1000]}
+            
+            Evaluate and return ONLY this format:
+            SKILLS_SCORE: [0-100]
+            EXP_SCORE: [0-100]
+            EDU_SCORE: [0-100]
+            MISSING: [list 2 items to learn]
+            SUMMARY: [1 short advice sentence]
+            """
             res.llm_analysis = generate_llm_analysis(prompt)
             
         results.append(res)
     return results
-
-@app.get("/api/health")
-async def health():
-    return {
-        "status": "online",
-        "groq_ready": groq_client is not None,
-        "resume_index_size": len(resume_metadata),
-        "job_index_size": len(job_metadata)
-    }
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

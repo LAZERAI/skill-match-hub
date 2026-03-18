@@ -8,10 +8,8 @@ const app = {
         this.applyTheme();
         document.getElementById('theme-toggle').addEventListener('click', () => this.toggleTheme());
         
-        // Initialize PDF.js worker
         if (window.pdfjsLib) {
             pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-            console.log("PDF_ENGINE_LOADED");
         }
 
         document.querySelectorAll('textarea').forEach(el => {
@@ -46,7 +44,6 @@ const app = {
         const file = event.target.files[0];
         if (!file) return;
 
-        console.log(`FILE_SELECTED: ${file.name} (${file.type})`);
         const statusId = `${role}-status`;
         const chipContainer = `${role}-file-status`;
         const textArea = document.getElementById(role === 'recruiter' ? 'jd-input' : 'resume-input');
@@ -54,13 +51,7 @@ const app = {
         this.updateStatus(statusId, "PROCESSING_SOURCE_FILE...");
         
         try {
-            let text = "";
-            if (file.type === "application/pdf") {
-                text = await this.readPdf(file);
-            } else {
-                text = await file.text();
-            }
-            
+            const text = file.type === "application/pdf" ? await this.readPdf(file) : await file.text();
             if (!text || text.trim().length === 0) throw new Error("EMPTY_TEXT");
 
             this.state.extractedText[role] = text;
@@ -73,39 +64,30 @@ const app = {
                 </div>`;
             
             this.updateStatus(statusId, "READY_FOR_EXECUTION.");
-            console.log("EXTRACTION_SUCCESS");
         } catch (e) { 
-            console.error("EXTRACTION_ERROR:", e);
-            this.updateStatus(statusId, "SOURCE_ERROR: " + e.message);
-            alert("Could not extract text. Please ensure it's a valid PDF or TXT."); 
+            this.updateStatus(statusId, "SOURCE_ERROR.");
+            alert("Failed to read file."); 
         } finally { 
             event.target.value = ''; 
         }
     },
 
     async readPdf(file) {
-        if (!window.pdfjsLib) throw new Error("PDF_LIB_NOT_LOADED");
-        const arrayBuffer = await file.arrayBuffer();
-        const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
-        const pdf = await loadingTask.promise;
-        let fullText = "";
-        
+        const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+        let text = "";
         for (let i = 1; i <= pdf.numPages; i++) {
             const page = await pdf.getPage(i);
             const content = await page.getTextContent();
-            fullText += content.items.map(s => s.str).join(" ") + "\n";
+            text += content.items.map(s => s.str).join(" ") + "\n";
         }
-        return fullText;
+        return text;
     },
 
     async searchCandidates() {
         const q = document.getElementById('jd-input').value || this.state.extractedText.recruiter;
-        if (!q || !q.trim()) return alert("No input provided. Paste text or upload a PDF.");
-        
+        if (!q.trim()) return;
         const btn = document.getElementById('btn-recruiter-search');
-        const status = 'recruiter-status';
-        
-        this.setLoading(btn, true, status, "CONNECTING_TO_VECTOR_ENGINE...");
+        this.setLoading(btn, true, 'recruiter-status', "QUERYING_ENGINE...");
         try {
             const res = await fetch('/api/recruiter/search', {
                 method: 'POST',
@@ -114,22 +96,16 @@ const app = {
             });
             const data = await res.json();
             this.renderResults(data, 'recruiter');
-            this.updateStatus(status, "MAPPING_COMPLETE.");
-        } catch (e) { 
-            this.updateStatus(status, "ENGINE_FAILURE.");
-        } finally { 
-            this.setLoading(btn, false); 
-        }
+            this.updateStatus('recruiter-status', "MAPPING_COMPLETE.");
+        } catch (e) { this.updateStatus('recruiter-status', "ENGINE_FAILURE."); }
+        finally { this.setLoading(btn, false); }
     },
 
     async searchJobs() {
         const q = document.getElementById('resume-input').value || this.state.extractedText.seeker;
-        if (!q || !q.trim()) return alert("No input provided. Paste text or upload a PDF.");
-
+        if (!q.trim()) return;
         const btn = document.getElementById('btn-seeker-search');
-        const status = 'seeker-status';
-
-        this.setLoading(btn, true, status, "CONNECTING_TO_VECTOR_ENGINE...");
+        this.setLoading(btn, true, 'seeker-status', "QUERYING_ENGINE...");
         try {
             const res = await fetch('/api/seeker/search', {
                 method: 'POST',
@@ -138,38 +114,21 @@ const app = {
             });
             const data = await res.json();
             this.renderResults(data, 'seeker');
-            this.updateStatus(status, "MAPPING_COMPLETE.");
-        } catch (e) { 
-            this.updateStatus(status, "ENGINE_FAILURE.");
-        } finally { 
-            this.setLoading(btn, false); 
-        }
+            this.updateStatus('seeker-status', "MAPPING_COMPLETE.");
+        } catch (e) { this.updateStatus('seeker-status', "ENGINE_FAILURE."); }
+        finally { this.setLoading(btn, false); }
     },
 
     renderResults(results, type) {
         const container = document.getElementById(`${type}-results`);
         container.innerHTML = '';
         
-        if (results.length === 0) {
-            container.innerHTML = '<div class="result-card" style="text-align:center">NO_RESULTS_FOUND</div>';
-            return;
-        }
-
         results.forEach(res => {
             const card = document.createElement('div');
             card.className = 'result-card';
             const score = Math.round(res.score * 100);
+            const analysis = this.parseAnalysis(res.llm_analysis);
             
-            let analysisHtml = '';
-            if (res.llm_analysis) {
-                const isError = res.llm_analysis.includes('_ERROR') || res.llm_analysis.includes('_OFFLINE');
-                analysisHtml = `
-                    <div class="ai-box" style="${isError ? 'opacity: 0.5;' : ''}">
-                        <h4>${isError ? 'AI_ENGINE_OFFLINE' : 'AI_GENERATED_INSIGHTS'}</h4>
-                        <div style="font-size: 0.85rem; line-height: 1.5;">${res.llm_analysis.replace(/\n/g, '<br>')}</div>
-                    </div>`;
-            }
-
             const meta = res.metadata;
             const title = type === 'recruiter' ? (meta.name || "CANDIDATE") : (meta.job_title + " @ " + meta.company);
             const sub = type === 'recruiter' ? (meta.email || "CONFIDENTIAL") : (meta.location || "REMOTE");
@@ -181,7 +140,23 @@ const app = {
                         <p style="color: var(--muted); font-size: 0.75rem; font-family: 'Geist Mono', monospace; margin-top: 0.2rem;">${sub}</p>
                     </div>
                     <div style="text-align: right;">
-                        <div class="match-score">${score}%</div>
+                        <div class="popover-trigger">
+                            <div class="match-score">${score}%</div>
+                            <div class="popover-content">
+                                <div class="popover-header">
+                                    <h3>MATCH_ANALYSIS</h3>
+                                    <span class="match-score" style="font-size: 1rem;">${score}%</span>
+                                </div>
+                                ${this.renderProgressBar("Skills", analysis.skills)}
+                                ${this.renderProgressBar("Experience", analysis.exp)}
+                                ${this.renderProgressBar("Education", analysis.edu)}
+                                
+                                <div class="missing-alert">
+                                    <strong>Missing_Requirements</strong>
+                                    <p>${analysis.missing}</p>
+                                </div>
+                            </div>
+                        </div>
                         <details style="display: inline-block;">
                             <summary class="icon-toggle" title="View Source"><i class="fa-solid fa-file-lines"></i></summary>
                             <div style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 85%; max-width: 700px; max-height: 80vh; overflow-y: auto; background: var(--bg); border: 1px solid var(--fg); padding: 2.5rem; z-index: 2000; box-shadow: 0 0 0 1000px rgba(0,0,0,0.7); font-size: 0.85rem; color: var(--muted); white-space: pre-wrap; font-family: 'Geist Mono', monospace; text-align: left;">
@@ -194,10 +169,43 @@ const app = {
                         </details>
                     </div>
                 </div>
-                ${analysisHtml}
+                <div class="ai-box">
+                    <h4>AI_SUMMARY</h4>
+                    <div style="font-size: 0.85rem; line-height: 1.5;">${analysis.summary}</div>
+                </div>
             `;
             container.appendChild(card);
         });
+    },
+
+    renderProgressBar(label, value) {
+        return `
+            <div class="progress-group">
+                <div class="progress-label">
+                    <span>${label}</span>
+                    <span>${value}%</span>
+                </div>
+                <div class="progress-bar-bg">
+                    <div class="progress-bar-fill" style="width: ${value}%"></div>
+                </div>
+            </div>
+        `;
+    },
+
+    parseAnalysis(text) {
+        const defaults = { skills: 0, exp: 0, edu: 0, missing: "None detected", summary: text || "Processing..." };
+        if (!text || text.includes('OFFLINE')) return defaults;
+
+        const lines = text.split('\n');
+        const getValue = (key) => lines.find(l => l.includes(key))?.split(':')[1]?.trim() || "";
+        
+        return {
+            skills: parseInt(getValue('SKILLS_SCORE')) || 0,
+            exp: parseInt(getValue('EXP_SCORE')) || 0,
+            edu: parseInt(getValue('EDU_SCORE')) || 0,
+            missing: getValue('MISSING') || "No major gaps",
+            summary: getValue('SUMMARY') || "Analysis complete."
+        };
     },
 
     setLoading(btn, isLoading, statusId, text) {
@@ -220,7 +228,6 @@ const app = {
     clearSearch(role) {
         const textArea = document.getElementById(role === 'recruiter' ? 'jd-input' : 'resume-input');
         textArea.value = '';
-        textArea.placeholder = 'INPUT_SOURCE_DATA // CTRL+ENTER_TO_PROCESS';
         this.state.extractedText[role] = '';
         document.getElementById(`${role}-results`).innerHTML = '';
         document.getElementById(`${role}-file-status`).innerHTML = '';
